@@ -1,0 +1,1325 @@
+/*
+ * PD Impression 程序界面样式
+ *
+ * 查找方法：按 Ctrl + F，搜索下面的中文区域名称或 CSS 类名。
+ * 修改方法：只改冒号后、分号前的值，例如 font-size: 14px;
+ * 常用属性：font-size 字号；font-weight 粗细；color 文字颜色；
+ * background 背景；padding 内边距；margin 外边距；gap 元素间距。
+ * padding / margin 四个值的顺序：上、右、下、左；两个值：上下、左右。
+ * 单位 px 是像素；十六进制颜色以 # 开头。修改时保留单位和分号。
+ * 界面字号统一不低于 12px；标题和原本更大的字号保留。
+ *
+ * 本文件控制程序界面。导出图片里的字号、黑边和编号在 src/shared/layout.ts。
+ * 文件末尾有窄窗口规则：同一元素在小窗口下可能使用不同的尺寸。
+ */
+
+/* ===== 01 全局主题：基础字体、背景、主题色 ===== */
+
+:root {
+  font-family: Inter,"Segoe UI","Microsoft YaHei",sans-serif; /* 界面字体：依次尝试使用这些字体 */
+  color: #30312e;
+  background: #f4f3ef;
+  font-synthesis: none;
+  font-size: 13px; /* 基础字号；单独设置字号的元素不会随这里一起变化 */
+  --accent: #b77b35; /* 主题色：主按钮等 */
+  --accent-dark: #996126; /* 主题深色：文字按钮等 */
+  --line: #e2e2db; /* 分隔线颜色 */
+  --muted: #5b6355; /* 说明、提示、状态栏等次要文字：使用深灰，方便阅读 */
+  --panel: #fcfcfa; /* 侧栏和工具栏背景色 */
+}
+
+/* ===== 02 通用样式：按钮、输入框、标题 ===== */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  border: 1px solid #dedfd7;
+  background: #fff;
+  color: #45463f;
+  border-radius: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .12s,border-color .12s;
+}
+
+button:hover:not(:disabled) {
+  background: #f3efe7;
+  border-color: #c7b392;
+}
+
+button:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent-dark);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #c8a16e;
+  outline-offset: 2px;
+}
+
+input,
+textarea,
+select {
+  min-width: 0;
+  border: 1px solid #dedfd8;
+  background: #fff;
+  border-radius: 5px;
+  padding: 8px 9px;
+  color: #393a34;
+}
+
+textarea {
+  resize: vertical;
+}
+
+/* 输入框中的提示文字也使用清晰的深灰，避免浏览器额外降低透明度 */
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+input[type=checkbox] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h2 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+h3 {
+  font-size: 14px;
+  font-weight: 650;
+  margin-bottom: 19px;
+}
+
+small {
+  font-size: 12px;
+}
+
+fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+/* ===== 03 主窗口与顶部工具栏 ===== */
+
+.app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.toolbar {
+  height: 76px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  flex: none;
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 207px;
+}
+
+/* 程序左上角的主标题：font-size 控制字号 */
+.identity strong {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -.5px;
+}
+
+/* 程序左上角的副标题 */
+.identity small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 2px;
+  margin-top: 3px;
+}
+
+/* 左上角暗房 Logo：使用 pics/logo.jpg，完整显示、不裁切 */
+.brand-icon {
+  display: block;
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.tools {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+
+/* 顶部“新建、打开项目、保存”等按钮 */
+.tools button {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.separator {
+  height: 20px;
+  border-left: 1px solid var(--line);
+  margin: 0 4px;
+}
+
+.toolbar-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.offline {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.offline i {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8ca183;
+  margin-right: 6px;
+}
+
+.toolbar-end .primary {
+  padding: 10px 19px;
+}
+
+/* ===== 04 三栏布局：左侧照片、中间预览、右侧设置 ===== */
+
+.workspace {
+  display: grid;
+  grid-template-columns: 246px minmax(420px,1fr) 323px; /* 左栏宽度、中间自适应区域、右栏宽度 */
+  min-height: 0;
+  flex: 1;
+}
+
+.library,
+.settings {
+  background: var(--panel);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== 05 左侧照片列表 ===== */
+
+.library {
+  border-right: 1px solid var(--line);
+}
+
+/* 项目目录：位于左侧照片列表上方，每项对应一卷 contact sheet */
+.project-directory {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  max-height: 220px;
+  border-bottom: 1px solid var(--line);
+  padding: 0 10px 10px;
+}
+
+.project-directory-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 6px 10px;
+}
+
+.project-directory-list {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 预览上方的项目标签：双击名称重命名，叉号关闭标签 */
+.project-tabs {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 0 10px;
+  min-height: 24px; /* 标签栏高度：原先 48px 的一半 */
+  border-bottom: 1px solid var(--line);
+  background: #e5e7df;
+}
+
+.project-item {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+
+.project-directory-list .project-item.active {
+  background: #eee6d7;
+  border-color: #dec7a4;
+}
+
+.project-tabs .project-item {
+  flex: 0 0 180px;
+  max-width: 240px;
+  border-radius: 7px 7px 0 0;
+  background: #eef0e8;
+}
+
+.project-tabs .project-item.active {
+  background: #fcfcfa;
+  border-color: #d5b88f;
+  border-bottom-color: #fcfcfa;
+}
+
+.project-tabs .project-select {
+  padding: 2px 8px;
+  line-height: 16px;
+}
+
+.project-tabs .project-close,
+.project-tabs .project-add {
+  padding: 0 8px;
+  margin: 0;
+  line-height: 20px;
+}
+
+.project-tabs .project-rename {
+  height: 20px;
+  padding: 0 6px;
+  margin: 0 3px;
+  line-height: 18px;
+}
+
+.project-select {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 7px;
+  padding: 10px 8px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  color: #46513f;
+}
+
+.project-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-select small {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.project-unsaved {
+  flex-shrink: 0;
+  color: #996126;
+  font-size: 12px;
+}
+
+.project-close,
+.project-add {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: #46513f;
+  font-size: 18px;
+  padding: 4px 8px;
+  margin: 3px;
+}
+
+.project-close:hover:not(:disabled) {
+  background: #ead8c8;
+}
+
+.project-rename {
+  width: 0;
+  min-width: 0;
+  flex: 1;
+  padding: 7px 6px;
+  margin: 3px;
+  font-size: 13px;
+}
+
+.project-tabs::-webkit-scrollbar,
+.project-directory-list::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.project-tabs::-webkit-scrollbar-thumb,
+.project-directory-list::-webkit-scrollbar-thumb {
+  background: #7c856f;
+  border-radius: 5px;
+}
+
+.panel-heading {
+  padding: 22px 16px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 500;
+  background: #eeeee7;
+  color: var(--muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+
+.text-button {
+  background: none;
+  border: 0;
+  color: var(--accent-dark);
+  padding: 5px 0;
+  font-size: 12px;
+  white-space: normal;
+  text-align: left;
+}
+
+.sort-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid #eeeee8;
+  border-bottom: 1px solid #eeeee8;
+  margin: 0 16px;
+  padding: 8px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sort-bar button {
+  font-size: 12px;
+}
+
+.photo-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 8px;
+}
+
+.photo-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  padding: 9px 7px;
+  text-align: left;
+  gap: 10px;
+  min-height: 76px;
+}
+
+.photo-row:hover:not(:disabled) {
+  background: #f3f2ed;
+  border-color: transparent;
+}
+
+.photo-row.active {
+  background: #f7ebd9;
+  border-color: #e8d5b6;
+}
+
+.photo-row.failed {
+  border-color: #e4c3bf;
+}
+
+.thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 54px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #e7e8e0;
+  color: var(--muted);
+  flex: none;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photo-meta {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 照片列表中的文件名 */
+.photo-meta>span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.photo-meta b {
+  font-size: 12px;
+  margin-right: 3px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* 照片列表中的文件格式和大小 */
+.photo-meta small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.list-empty {
+  margin: 60px auto;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 2;
+}
+
+.list-empty>span {
+  font-size: 32px;
+  display: block;
+  margin-bottom: 14px;
+}
+
+.overflow {
+  background: #fff1ed;
+  padding: 12px;
+  font-size: 12px;
+  margin-top: 10px;
+  border-radius: 6px;
+  color: #8b493a;
+}
+
+.overflow p {
+  margin: 8px 0;
+  line-height: 1.6;
+}
+
+.overflow>div {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 0;
+}
+
+.overflow>div span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.overflow button {
+  padding: 4px 6px;
+  font-size: 12px;
+  margin-left: auto;
+}
+
+/* ===== 06 中间成品预览：画布、缩放、预览提示 ===== */
+
+.preview-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: #eaeae4;
+}
+
+.preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 23px;
+  min-height: 68px;
+  border-bottom: 1px solid #dfdfd7;
+  background: #f3f3ee;
+}
+
+.preview-heading small {
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+  display: block;
+  margin-top: 5px;
+}
+
+.zoom-tools {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.zoom-tools button {
+  padding: 5px 7px;
+  font-size: 12px;
+  background: transparent;
+  border-color: #d9dcd1;
+}
+
+.zoom-tools span {
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 30px;
+  text-align: center;
+}
+
+.canvas-scroll {
+  flex: 1;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  padding: 28px 32px 20px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.paper-wrap {
+  margin: 0 auto;
+  flex-shrink: 0;
+  max-width: none;
+}
+
+/* 预览纸张的外观；纸张内的胶片与文字由 layout.ts 绘制 */
+.paper {
+  background: white;
+  box-shadow: 0 3px 12px #25271914;
+  line-height: 0;
+  width: 100%;
+  cursor: pointer;
+  border: 1px solid #deded5;
+}
+
+.paper svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.paper-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 13px;
+}
+
+.layout-warning {
+  padding: 12px 20px;
+  background: #faeee2;
+  color: #986536;
+  font-size: 12px;
+}
+
+/* ===== 07 未导入照片时的欢迎页面 ===== */
+
+.welcome {
+  margin: auto;
+  text-align: center;
+  padding: 35px 10px;
+  min-width: 340px;
+}
+
+/* 欢迎页使用原 Logo，正片叠底使图片白底融入画布，保留黑色印章细节 */
+.welcome-logo {
+  display: block;
+  width: 150px;
+  height: 150px;
+  object-fit: contain;
+  margin: 0 auto 24px;
+  mix-blend-mode: multiply;
+}
+
+.welcome p {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 2;
+  margin: 18px 0 27px;
+}
+
+.welcome-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.welcome>small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 35px;
+  letter-spacing: 1px;
+}
+
+/* ===== 08 右侧设置：选项卡、表单、模板按钮 ===== */
+
+.settings {
+  border-left: 1px solid var(--line);
+}
+
+.tabs {
+  display: flex;
+  gap: 3px;
+  padding: 14px 15px 11px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* 右侧“本卷信息、暗房模板、照片”选项卡 */
+.tabs button {
+  flex: 1;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  font-size: 12px;
+  padding: 10px 4px;
+  color: var(--muted);
+}
+
+.tabs button.selected {
+  background: #e9eadd;
+  color: #47503c;
+  font-weight: 600;
+}
+
+.settings-scroll {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.settings-group {
+  padding: 22px 22px 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.section-label {
+  font-size: 12px;
+  letter-spacing: 1.6px;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.section-label span {
+  letter-spacing: 0;
+}
+
+/* 卷号、暗房名称等上下排列的字段标签 */
+.stack-field {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  font-size: 12px;
+  color: #46513f;
+  margin: 15px 0;
+}
+
+/* 上下排列字段的输入文字字号 */
+.stack-field input,
+.stack-field select,
+.stack-field textarea {
+  width: 100%;
+  font-size: 12px;
+}
+
+/* 页边距、白缝等左右排列的参数标签 */
+.field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 13px 0;
+  min-height: 28px;
+  font-size: 12px;
+  color: #46513f;
+}
+
+.field>span {
+  flex: 1;
+}
+
+.field select {
+  max-width: 148px;
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.unit-input {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 118px;
+}
+
+/* 带 mm 单位的数字输入框 */
+.unit-input input {
+  width: 90px;
+  padding: 6px 7px;
+  font-size: 12px;
+}
+
+.unit-input small {
+  color: var(--muted);
+}
+
+.field input[type=color] {
+  height: 29px;
+  width: 90px;
+  padding: 3px;
+}
+
+.fixed-value {
+  font-size: 12px;
+  font-weight: 400;
+  color: #46513f;
+  background: #f0f1e9;
+  border: 1px solid #e6e8dc;
+  border-radius: 4px;
+  padding: 6px 12px;
+}
+
+/* 设置项下面的说明文字 */
+.help {
+  display: block;
+  color: var(--muted);
+  line-height: 1.8;
+  font-size: 12px;
+  margin: 10px 0;
+}
+
+.locked {
+  font-size: 12px;
+  color: #46513f;
+  padding: 9px 0;
+}
+
+.locked span {
+  float: right;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 复选框旁的文字 */
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #46513f;
+  line-height: 1.7;
+  margin: 13px 0;
+}
+
+.check input {
+  margin: 0;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 18px;
+}
+
+.settings-actions button {
+  font-size: 12px;
+  padding: 9px 10px;
+}
+
+.settings-actions button:last-child {
+  color: var(--accent-dark);
+  border-color: #d5bc98;
+}
+
+/* ===== 09 本卷摘要与单张照片操作 ===== */
+
+.summary>div {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+  margin: 14px 0;
+}
+
+.summary strong {
+  color: #46513f;
+  font-weight: 500;
+}
+
+.summary p {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.9;
+  margin-top: 25px;
+}
+
+.button-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 15px 0;
+}
+
+.button-grid button {
+  font-size: 12px;
+  padding: 9px 4px;
+}
+
+.selected-name {
+  word-break: break-all;
+  font-size: 12px;
+  color: #46513f;
+}
+
+.inspector-image {
+  width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+  background: #edeed7;
+  margin: 4px 0 16px;
+  border-radius: 4px;
+}
+
+/* ===== 10 底部提示与状态栏 ===== */
+
+.notice {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 18px;
+  font-size: 12px;
+  color: var(--muted);
+  background: #f7f8f2;
+  border-top: 1px solid var(--line);
+  min-height: 30px;
+  flex: none;
+}
+
+.notice.error {
+  background: #fbefea;
+  color: #a45d45;
+}
+
+.notice span {
+  flex: 1;
+  white-space: pre-wrap;
+}
+
+.notice button {
+  padding: 2px 6px;
+  font-size: 12px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+}
+
+/* 窗口最底部的照片数量和保存状态 */
+.status {
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  font-size: 12px;
+  color: var(--muted);
+  background: #fcfcf8;
+  border-top: 1px solid var(--line);
+}
+
+.status i {
+  display: inline-block;
+  border-left: 1px solid #dfe2d6;
+  height: 8px;
+  margin: 0 10px;
+}
+
+/* ===== 11 文件拖入提示与处理进度 ===== */
+
+.drop-overlay {
+  position: absolute;
+  inset: 76px 0 30px;
+  border: 3px dashed #c2a16d;
+  background: #f4eddfef;
+  z-index: 20;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  font-size: 24px;
+  color: #866234;
+}
+
+.drop-overlay span {
+  font-size: 13px;
+  margin-top: 18px;
+}
+
+.busy {
+  position: fixed;
+  z-index: 100;
+  left: 50%;
+  bottom: 50px;
+  transform: translateX(-50%);
+  width: 500px;
+  background: #fff;
+  border: 1px solid #e2ddcc;
+  border-radius: 9px;
+  box-shadow: 0 4px 26px #20271122;
+  overflow: hidden;
+}
+
+.busy>div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px;
+}
+
+.busy strong {
+  flex: 1;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.busy span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.busy button {
+  font-size: 12px;
+}
+
+.busy progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  border: 0;
+  accent-color: #b77b35;
+}
+
+.spinner {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #e2dccd;
+  border-top-color: #b77b35;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  flex: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ===== 12 导出弹窗 ===== */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: #242c2255;
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+}
+
+.modal {
+  width: 560px;
+  max-height: 90vh;
+  overflow: auto;
+  border-radius: 14px;
+  background: #fcfcf8;
+  box-shadow: 0 18px 80px #0003;
+  padding: 28px;
+}
+
+.modal-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-bottom: 18px;
+}
+
+.modal-heading small {
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--muted);
+  display: block;
+  margin-bottom: 9px;
+}
+
+/* 弹窗标题 */
+.modal-heading h2 {
+  font-size: 22px;
+  font-weight: 500;
+  color: #515b46;
+}
+
+.modal-heading>button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.export-option {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 17px 12px;
+  border: 1px solid #e4e6dc;
+  border-radius: 7px;
+  margin: 10px 0;
+  background: #fff;
+}
+
+.export-option>div {
+  flex: 1;
+}
+
+.export-option strong {
+  display: block;
+  font-size: 13px;
+  color: #46513f;
+  font-weight: 500;
+}
+
+.export-option small {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.export-option select {
+  font-size: 12px;
+}
+
+.export-spec {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 13px 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.warning-inline {
+  color: #9b793e;
+  background: #faf3e7;
+  padding: 12px;
+  border-radius: 5px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.error-inline {
+  color: #a44c43;
+  background: #f7eeea;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.8;
+  border-radius: 4px;
+  word-break: break-word;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 23px;
+}
+
+.export-result {
+  border-top: 1px solid #e5e5d9;
+  padding-top: 15px;
+  margin-top: 15px;
+  font-size: 12px;
+  color: #46513f;
+}
+
+.export-result button {
+  display: block;
+  margin-top: 7px;
+  word-break: break-all;
+}
+
+/* ===== 13 辅助样式与滚动条 ===== */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d3d7c9;
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 预览画布专用滚动条：横、纵方向都加粗，滑块使用深色 */
+.canvas-scroll::-webkit-scrollbar {
+  width: 18px;
+  height: 18px;
+}
+
+.canvas-scroll::-webkit-scrollbar-track,
+.canvas-scroll::-webkit-scrollbar-corner {
+  background: #d6d9cf;
+}
+
+.canvas-scroll::-webkit-scrollbar-thumb {
+  background: #66705c;
+  border: 3px solid #d6d9cf;
+  border-radius: 9px;
+  min-width: 48px;
+  min-height: 48px;
+}
+
+.canvas-scroll::-webkit-scrollbar-thumb:hover {
+  background: #46513f;
+}
+
+.canvas-scroll::-webkit-scrollbar-thumb:active {
+  background: #343e2f;
+}
+
+/* ===== 14 窄窗口适配：窗口宽度不超过 1250px 时，以下规则会覆盖上方同名样式 ===== */
+
+@media (max-width:1250px) {
+  .workspace {
+    grid-template-columns: 215px minmax(370px,1fr) 300px;
+  }
+
+  .toolbar {
+    gap: 12px;
+    padding: 0 16px;
+  }
+
+  .identity {
+    min-width: 184px;
+  }
+
+  .offline {
+    display: none;
+  }
+
+  .toolbar-end {
+    gap: 0;
+  }
+
+  .settings-group {
+    padding: 19px 17px;
+  }
+
+  .preview-heading {
+    padding: 14px 16px;
+  }
+
+  .canvas-scroll {
+    padding: 22px;
+  }
+
+  .zoom-tools {
+    gap: 4px;
+  }
+
+  .tools {
+    gap: 5px;
+  }
+
+  .tools button {
+    padding: 7px 8px;
+  }
+}
