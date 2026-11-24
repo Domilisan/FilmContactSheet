@@ -202,7 +202,9 @@ function registerHandlers() {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === 'win32') app.setAppUserModelId('studio.pdimpression.desktop')
   window = new BrowserWindow({ width: 1500, height: 980, minWidth: 1120, minHeight: 740,
+    icon: join(__dirname, '../../build', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     title: 'PD Impression', backgroundColor: '#f4f3ef', show: false,
     webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } })
   window.setMenuBarVisibility(false)

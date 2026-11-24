@@ -6,6 +6,9 @@
   "author": "PD Impression",
   "main": "out/main/index.js",
   "scripts": {
+    "icons": "node scripts/build-icons.mjs",
+    "predev": "npm run icons",
+    "prebuild": "npm run icons",
     "dev": "electron-vite dev",
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && electron-vite build",
@@ -28,6 +31,8 @@
     },
     "files": [
       "out/**/*",
+      "build/icon.ico",
+      "build/icon.png",
       "package.json"
     ],
     "asarUnpack": [
@@ -36,9 +41,12 @@
     ],
     "npmRebuild": false,
     "win": {
+      "icon": "build/icon.ico",
       "target": "nsis"
     },
     "nsis": {
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
