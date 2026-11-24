@@ -131,3 +131,4 @@ npm.cmd run dist:win
 Mac 上运行 `npm run dist:mac`；发布前配置签名与公证，按目标芯片构建原生依赖。打包后必须再次测试 Sharp 的加载和导出，开发模式成功不代表安装包已经合格。
 
 依赖版本通过 `package-lock.json` 固定。初始化审计报告的 6 项 moderate 问题来自 electron-builder 的构建依赖链（minimatch），不是运行时图片处理依赖；没有强行降级构建工具。正式分发前应复查上游修复和构建依赖。
+
