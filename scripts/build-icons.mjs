@@ -28,4 +28,20 @@ frames.forEach((frame, index) => {
 })
 await writeFile(new URL('../build/icon.ico', import.meta.url), Buffer.concat([directory, ...frames]))
 await writeFile(new URL('../build/icon.png', import.meta.url), frames.at(-1))
+// Native macOS icon representations, rendered from the source at Retina size.
+const macLogo = await sharp(source).trim({ background: '#ffffff', threshold: 20 })
+  .resize(848, 848, { fit: 'contain', background: '#ffffff' }).png().toBuffer()
+const macMask = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"><rect x="16" y="16" width="992" height="992" rx="212" fill="white"/></svg>')
+const macIcon = await sharp({ create: { width: 1024, height: 1024, channels: 4, background: '#ffffff' } })
+  .composite([{ input: macLogo, left: 88, top: 88 }, { input: macMask, blend: 'dest-in' }]).png().toBuffer()
+const macSizes = [['icp4', 16], ['icp5', 32], ['icp6', 64], ['ic07', 128], ['ic08', 256], ['ic09', 512], ['ic10', 1024]]
+const macEntries = await Promise.all(macSizes.map(async ([type, size]) => {
+  const png = await sharp(macIcon).resize(size, size).png().toBuffer()
+  const header = Buffer.alloc(8)
+  header.write(type, 0, 4, 'ascii'); header.writeUInt32BE(png.length + 8, 4)
+  return Buffer.concat([header, png])
+}))
+const macHeader = Buffer.alloc(8)
+macHeader.write('icns'); macHeader.writeUInt32BE(8 + macEntries.reduce((sum, entry) => sum + entry.length, 0), 4)
+await writeFile(new URL('../build/icon.icns', import.meta.url), Buffer.concat([macHeader, ...macEntries]))
 console.log('Application icons generated from pics/logo.jpg')

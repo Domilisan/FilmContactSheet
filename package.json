@@ -19,9 +19,12 @@
     "test:multitask": "tsx scripts/multitask-smoke.ts",
     "test:export-name": "tsx scripts/export-name-smoke.ts",
     "test:scan-types": "tsx scripts/scan-types-smoke.ts",
+    "test:packaged": "tsx scripts/packaged-smoke.mts",
     "pack:win": "npm run build && electron-builder --win --dir",
     "dist:win": "npm run build && electron-builder --win nsis",
-    "dist:mac": "npm run build && electron-builder --mac dmg"
+    "dist:mac": "npm run dist:mac:intel",
+    "dist:mac:intel": "npm run build && electron-builder --mac dmg --x64 --publish never",
+    "verify:mac:intel": "node scripts/verify-mac-intel.mjs"
   },
   "build": {
     "appId": "studio.pdimpression.desktop",
@@ -54,7 +57,13 @@
       "allowToChangeInstallationDirectory": true
     },
     "mac": {
-      "target": "dmg",
+      "target": [{ "target": "dmg", "arch": ["x64"] }],
+      "icon": "build/icon.icns",
+      "minimumSystemVersion": "13.7.1",
+      "artifactName": "${productName}-${version}-macOS-Intel.${ext}",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "notarize": false,
       "category": "public.app-category.photography"
     }
   },

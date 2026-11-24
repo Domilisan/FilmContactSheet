@@ -1,0 +1,68 @@
+name: Build macOS Intel test installer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-intel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    timeout-minutes: 35
+    env:
+      SHARP_IGNORE_GLOBAL_LIBVIPS: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          architecture: x64
+          cache: npm
+      - name: Verify Intel build host
+        run: node -e "if (process.platform !== 'darwin' || process.arch !== 'x64') throw new Error('Intel macOS runner required')"
+      - name: Install locked dependencies including native image libraries
+        run: npm ci --include=optional
+      - name: Run tests
+        run: npm test
+      - name: Build Intel DMG (never publish)
+        run: npm run dist:mac:intel
+      - name: Check signatures, architecture and Ventura deployment targets
+        run: npm run verify:mac:intel
+      - name: Test packaged app import, save, reopen and export
+        run: npm run test:packaged
+      - name: Verify disk image and prepare download
+        run: |
+          hdiutil verify release/*-macOS-Intel.dmg
+          cp docs/MAC-INTEL-TEST.md release/MAC-INTEL-TEST.md
+          cd release
+          shasum -a 256 *-macOS-Intel.dmg > SHA256SUMS.txt
+      - name: Upload installer as an Actions artifact only
+        uses: actions/upload-artifact@v7
+        with:
+          name: PD-Impression-macOS-Intel-test-${{ github.run_number }}
+          path: |
+            release/*-macOS-Intel.dmg
+            release/SHA256SUMS.txt
+            release/MAC-INTEL-TEST.md
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macOS-Intel-diagnostics-${{ github.run_number }}
+          path: |
+            .test-output/mac-intel-verification.json
+            .test-output/packaged-*/result.json
+            .test-output/packaged-*/*.png
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7

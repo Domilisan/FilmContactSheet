@@ -83,7 +83,7 @@ macOS 使用 `npm` 而不是 `npm.cmd`，在 Mac 上重新安装依赖，不复�
 - 导入任务当前完成本次文件批次后统一展示缩略图，处理中会显示逐文件进度。
 - 原图丢失可逐张定位，批量重新定位文件夹和缓存清理管理界面尚未实现。
 - 退出有未保存内容时可返回保存或放弃退出，尚未做带原生“保存并退出”的完整三按钮流程。
-- 应用未签名、公证；Mac 安装包尚未在本机生成或测试。
+- Windows 安装包未签名；Intel Mac 测试版使用 ad-hoc 签名，未配置 Apple Developer ID 和公证。Ventura 13.7.1 仍需目标电脑实测。
 - 软件不自动更新，不上报照片或项目数据。
 
 ## 测试
@@ -128,7 +128,11 @@ npm.cmd run pack:win
 npm.cmd run dist:win
 ```
 
-Mac 上运行 `npm run dist:mac`；发布前配置签名与公证，按目标芯片构建原生依赖。打包后必须再次测试 Sharp 的加载和导出，开发模式成功不代表安装包已经合格。
+Intel Mac 测试版目标为 macOS Ventura 13.7.1，运行 `npm run dist:mac:intel`，输出 `release/PD Impression-0.1.0-macOS-Intel.dmg`。配置明确使用 x64，不影响 Windows 打包。
+
+GitHub Actions 的 **Build macOS Intel test installer** 工作流仅由 **Run workflow** 手动触发，在 `macos-15-intel` 上安装对应原生依赖、构建、检查 Mach-O 最低系统版本，并测试打包应用的 TIFF 导入、项目保存重开和 JPEG 导出。成功后下载 Actions 附件即可，不创建或修改 Releases。说明见 [Intel Mac 测试版](docs/MAC-INTEL-TEST.md)。
+
+云端构建机不是 Ventura，检查通过不代表已在 13.7.1 上实测。正式发布前仍需目标电脑验证，并配置 Developer ID 签名与公证。
 
 依赖版本通过 `package-lock.json` 固定。初始化审计报告的 6 项 moderate 问题来自 electron-builder 的构建依赖链（minimatch），不是运行时图片处理依赖；没有强行降级构建工具。正式分发前应复查上游修复和构建依赖。
 
