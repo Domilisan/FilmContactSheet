@@ -41,8 +41,11 @@ async function scan(folder) {
   }
 }
 await scan(join(app, 'Contents'))
-assert(binaries.some(binary => binary.path.endsWith('MacOS/PD Impression')), 'Missing application executable')
-assert(binaries.some(binary => binary.path.endsWith('sharp-darwin-x64.node')), 'Missing Intel Sharp native addon')
+// Save the inventory before presence checks so CI retains diagnostics on failure.
 await mkdir('.test-output', { recursive: true })
 await writeFile('.test-output/mac-intel-verification.json', JSON.stringify({ target, minimum, binaries }, null, 2))
+assert(binaries.some(binary => binary.path.endsWith('MacOS/PD Impression')), 'Missing application executable')
+// Sharp 0.35 includes its version in the native filename; older releases do not.
+// Require the Intel macOS package path as well as a scanned native binary.
+assert(binaries.some(binary => /\/@img\/sharp-darwin-x64\/lib\/sharp-darwin-x64(?:-[^/]+)?\.node$/.test(binary.path)), 'Missing Intel Sharp native addon (see mac-intel-verification.json)')
 console.log(`Verified ${binaries.length} Intel binaries and deployment targets <= macOS ${target}. Ventura runtime testing is still required.`)
