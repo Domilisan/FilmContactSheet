@@ -30,7 +30,9 @@ async function scan(folder) {
     if (!magicNumbers.has(magic.toString('hex'))) continue
     const architectures = run('/usr/bin/lipo', ['-archs', path]).split(/\s+/)
     assert(architectures.includes('x86_64'), `Missing Intel slice: ${path}`)
-    const commands = run('/usr/bin/otool', ['-arch', 'x86_64', '-l', path])
+    // Electron helper names end in parentheses, e.g. "Helper (GPU)".
+    // -m treats those as literal filenames instead of archive(member) syntax.
+    const commands = run('/usr/bin/otool', ['-m', '-arch', 'x86_64', '-l', path])
     const versions = [...commands.matchAll(/cmd LC_BUILD_VERSION\s[\s\S]*?\bminos ([\d.]+)|cmd LC_VERSION_MIN_MACOSX\s[\s\S]*?\bversion ([\d.]+)/g)]
       .map(match => match[1] || match[2])
     assert(versions.length, `No macOS deployment target: ${path}`)
