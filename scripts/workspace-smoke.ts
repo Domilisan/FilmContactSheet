@@ -14,6 +14,7 @@ async function main() {
   const desktop = await electron.launch({ args: [resolve('out/main/index.js'), `--user-data-dir=${join(output, 'user-data')}`], env })
   try {
     const page = await desktop.firstWindow()
+    page.setDefaultTimeout(15000)
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
     const tabs = page.locator('.project-tabs')
@@ -26,14 +27,27 @@ async function main() {
     }
     await expectEmpty()
     await page.screenshot({ path: join(output, 'empty-start.png') })
-    // Canceling the initial import must not create a placeholder project.
+    // Importing without a type opens the selector; canceling creates no project.
+    await page.getByRole('button', { name: '导入照片', exact: true }).click()
+    await page.getByRole('dialog', { name: '新建扫描项目' }).getByRole('button', { name: '取消' }).click()
+    await expectEmpty()
+    await page.locator('.project-directory-heading').getByRole('button', { name: '＋ 新建' }).click()
+    await page.getByRole('dialog', { name: '新建扫描项目' }).getByRole('button', { name: '选择 135', exact: true }).click()
+    await expect(tabs.getByRole('tab')).toHaveCount(1)
     await desktop.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] }) })
     await page.getByRole('button', { name: '导入照片', exact: true }).click()
     await expect(page.getByRole('button', { name: '导入照片', exact: true })).toBeEnabled()
-    await expectEmpty()
-    await page.locator('.project-directory-heading').getByRole('button', { name: '＋ 新建' }).click()
     await expect(tabs.getByRole('tab')).toHaveCount(1)
     await expect(tabs).toHaveCSS('height', '24px')
+    // Default names depend on open tabs, not the total number ever created.
+    await page.getByLabel('新建项目标签').click()
+    await page.getByRole('dialog', { name: '新建扫描项目' }).getByRole('button', { name: '选择 135', exact: true }).click()
+    await expect(tabs.locator('[aria-selected="true"]')).toHaveText('未命名项目 2')
+    await page.getByLabel('关闭项目 未命名项目 1', { exact: true }).click()
+    await page.getByLabel('新建项目标签').click()
+    await page.getByRole('dialog', { name: '新建扫描项目' }).getByRole('button', { name: '选择 135', exact: true }).click()
+    await expect(tabs.locator('[aria-selected="true"]')).toHaveText('未命名项目 1')
+    await page.getByLabel('关闭项目 未命名项目 2', { exact: true }).click()
     await page.getByLabel('关闭项目 未命名项目 1', { exact: true }).click()
     await expectEmpty()
     const rename = async (name: string) => {
@@ -47,6 +61,8 @@ async function main() {
       await expect(page.locator('.status')).toContainText('已保存')
     }
     const fileA = join(output, 'A.pdimpression'), fileB = join(output, 'B.pdimpression')
+    await page.getByRole('button', { name: '选择 135', exact: true }).click()
+    await expect(tabs.locator('[aria-selected="true"]')).toHaveText('未命名项目 1')
     await desktop.evaluate(({ dialog }, photo) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [photo] }) }, photo)
     await page.getByRole('button', { name: '导入照片', exact: true }).click()
     await expect(page.locator('.photo-row')).toHaveCount(1)
@@ -56,7 +72,10 @@ async function main() {
     await page.locator('.zoom-tools').getByRole('button', { name: '＋', exact: true }).click()
     await saveTo(fileA)
     await page.getByLabel('新建项目标签').click()
+    await page.getByRole('dialog', { name: '新建扫描项目' }).getByRole('button', { name: '选择 135', exact: true }).click()
     await expect(tabs.getByRole('tab')).toHaveCount(2)
+    // Naming the first project "卷 A" frees default number 1 while it stays open.
+    await expect(tabs.locator('[aria-selected="true"]')).toHaveText('未命名项目 1')
     await rename('卷 B')
     await page.getByLabel('订单编号 / 拍摄者').fill('B-001')
     await saveTo(fileB)

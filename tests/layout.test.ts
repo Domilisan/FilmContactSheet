@@ -7,7 +7,8 @@ import { readFileSync } from 'node:fs'
 const asset = (n: number): Asset => ({ id: String(n), path: `/test/${n}.tif`, name: `${n}.tif`,
   width: 3600, height: 2400, size: 60_000_000, depth: 'ushort', space: 'srgb', hasIcc: true,
   rotation: 0, preview: '', status: 'ready' })
-const roll = (n: number) => addAssets(newProject(), Array.from({ length: n }, (_, i) => asset(i + 1)))
+// 原版项目必须保持原有 36×24mm 几何，不能因新增扫描模板而变化。
+const roll = (n: number) => addAssets({ ...newProject(), layoutVersion: 1 }, Array.from({ length: n }, (_, i) => asset(i + 1)))
 
 describe('135 physical layout', () => {
   test('older projects without a workspace name remain readable', () => {

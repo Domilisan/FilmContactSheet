@@ -1,26 +1,45 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { addAssets, defaultTemplate, insertBlank, moveSlot, newProject, photoCount, removeAndShift,
-  type Project, type Template, type Progress, type ImportResult, type ExportResult } from '../../shared/model'
-import { exportErrors, layoutSheet, sheetSvg } from '../../shared/layout'
+  type Project, type Template, type TaskProgress, type TaskContext, type ImportResult } from '../../shared/model'
+import { exportErrors, layoutSheet, sheetSvg, newScanProject, fitProjectPage, rollHeader } from '../../shared/layout'
+import { projectProfile, ratioLabel, capacityLabel, rotationForProfile, type ScanType } from '../../shared/scan-types'
 import { filmStockGroups, isPresetFilm, OTHER_FILM } from '../../shared/film-stocks'
 import { scannerOptions, isPresetScanner, OTHER_SCANNER } from '../../shared/scanners'
 import { fixedLogo } from '../../shared/branding'
-import { DEFAULT_JPEG_QUALITY } from '../../shared/export-settings'
+import { DEFAULT_JPEG_QUALITY, defaultExportName, exportFilename } from '../../shared/export-settings'
 import ProjectNavigation from './ProjectNavigation'
+import ScanTypePicker from './ScanTypePicker'
+import { measureHeaderOrderY } from './header-spacing'
 
 type Tab = 'info' | 'template' | 'photo'
+const photoDragType = 'application/x-pdimpression-photo'
 const api = window.desktop
 const errorText = (error: unknown) => String(error instanceof Error ? error.message : error).replace(/^Error invoking remote method '[^']+': Error: /, '')
+interface BackgroundTask extends TaskContext {
+  title: string; kind: 'import' | 'export'
+  state: 'preparing' | 'queued' | 'running' | 'canceling' | 'completed' | 'canceled' | 'failed'
+  message: string; current: number; total: number; files: string[]; dismissAt?: number
+}
+const taskPending = (task: BackgroundTask) => ['preparing', 'queued', 'running', 'canceling'].includes(task.state)
+const taskStatus = (task: BackgroundTask) => {
+  const action = task.kind === 'import' ? '导入' : '导出'
+  if (task.state === 'running') return `正在${action}`
+  if (task.state === 'queued') return `等待${action}`
+  if (task.state === 'preparing') return `准备${action}`
+  if (task.state === 'canceling') return `正在取消${action}`
+  if (task.state === 'canceled') return `${action}已取消`
+  return task.message
+}
 
 interface ProjectSession {
   id: string; project: Project; path: string | null; saved: boolean
   selected: number | null; tab: Tab; zoom: number; undo: Project[]; redo: Project[]
   editingOtherFilm: boolean; editingOtherScanner: boolean; highWidth: number; acceptIcc: boolean
-  notice: string; problem: string
+  notice: string; problem: string; exportName: string | null
 }
 const createSession = (project: Project, id: string, path: string | null = null): ProjectSession => ({
   id, project, path, saved: true, selected: null, tab: 'info', zoom: 1, undo: [], redo: [],
-  editingOtherFilm: false, editingOtherScanner: false, highWidth: 8000, acceptIcc: false,
+  editingOtherFilm: false, editingOtherScanner: false, highWidth: 8000, acceptIcc: false, exportName: null,
   notice: path ? '项目已打开并重新检查原图。' : '所有照片在本机处理，原图保持不变。', problem: ''
 })
 const projectTitle = (session: ProjectSession) => session.project.name.trim()
@@ -41,14 +60,37 @@ export default function App() {
   const [activeId, setActiveId] = useState('')
   const [sessions, setSessions] = useState<ProjectSession[]>([])
   const [closingId, setClosingId] = useState<string | null>(null)
-  const projectNumber = useRef(0)
+  const [showTypePicker, setShowTypePicker] = useState(false)
   const defaultTemplateRef = useRef(defaultTemplate)
   const [editingOtherFilm, setEditingOtherFilm] = useState(false)
   const [editingOtherScanner, setEditingOtherScanner] = useState(false)
   const [selected, setSelected] = useState<number | null>(null)
   const [tab, setTab] = useState<Tab>('info')
-  const [busy, setBusy] = useState(false)
-  const [progress, setProgress] = useState<Progress | null>(null)
+  const [foregroundBusy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<TaskProgress | null>(null)
+  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([])
+  const [tasksCollapsed, setTasksCollapsed] = useState(false)
+  const tasksRef = useRef<BackgroundTask[]>([])
+  const updateTasks = (update: (tasks: BackgroundTask[]) => BackgroundTask[]) => {
+    tasksRef.current = update(tasksRef.current); setBackgroundTasks(tasksRef.current)
+  }
+  useEffect(() => {
+    const deadlines = backgroundTasks.flatMap(task => task.dismissAt === undefined ? [] : [task.dismissAt])
+    if (!deadlines.length) return
+    const timer = window.setTimeout(() => {
+      const now = Date.now()
+      updateTasks(tasks => tasks.filter(task => task.dismissAt === undefined || task.dismissAt > now))
+    }, Math.max(0, Math.min(...deadlines) - Date.now()))
+    return () => window.clearTimeout(timer)
+  }, [backgroundTasks])
+  useEffect(() => {
+    if (!backgroundTasks.length || backgroundTasks.some(taskPending)) return
+    const timer = window.setTimeout(() => setTasksCollapsed(true), 4000)
+    return () => window.clearTimeout(timer)
+  }, [backgroundTasks])
+  const importing = backgroundTasks.some(task => task.projectId === activeId && task.kind === 'import' && taskPending(task))
+  const exporting = backgroundTasks.some(task => task.projectId === activeId && task.kind === 'export' && taskPending(task))
+  const busy = foregroundBusy || importing
   const [notice, setNotice] = useState('所有照片在本机处理，原图保持不变。')
   const [problem, setProblem] = useState('')
   const [saved, setSaved] = useState(true)
@@ -56,8 +98,8 @@ export default function App() {
   const [zoom, setZoom] = useState(1)
   const [dropActive, setDropActive] = useState(false)
   const [showExport, setShowExport] = useState(false)
-  const [exportResult, setExportResult] = useState<ExportResult | null>(null)
   const [highWidth, setHighWidth] = useState(8000)
+  const [exportName, setExportName] = useState<string | null>(null)
   const [acceptIcc, setAcceptIcc] = useState(false)
   const [historyCount, setHistoryCount] = useState(0)
   const undo = useRef<Project[]>([]), redo = useRef<Project[]>([])
@@ -65,65 +107,124 @@ export default function App() {
   const projectRef = useRef(project)
   projectRef.current = project
   const layout = useMemo(() => layoutSheet(project), [project])
-  const svg = useMemo(() => sheetSvg(project, { pictures: true, selected: selected ?? undefined }), [project, selected])
+  const header = rollHeader(project)
+  const headerKey = JSON.stringify([header.title, header.titleSize, header.order, header.details])
+  const [headerSpacing, setHeaderSpacing] = useState<{ key: string; y: number } | null>(null)
+  useEffect(() => {
+    let current = true
+    measureHeaderOrderY({ title: header.title, titleSize: header.titleSize, order: header.order, details: header.details })
+      .then(y => { if (current) setHeaderSpacing({ key: headerKey, y }) })
+      .catch(error => { if (current) setProblem(errorText(error)) })
+    return () => { current = false }
+  }, [headerKey])
+  const orderY = headerSpacing?.key === headerKey ? headerSpacing.y : undefined
+  const svg = useMemo(() => sheetSvg(project, { pictures: true, selected: selected ?? undefined, orderY }), [project, selected, orderY])
   const count = photoCount(project)
+  const profile = projectProfile(project)
+  const capacity = project.slots.length
+  const unit = profile.mode === 'strip' ? '条' : '张'
   const selectedPhoto = selected === null ? null : project.slots[selected]
   const errors = exportErrors(project)
+  const exportNameValue = exportName ?? defaultExportName(project.roll, highWidth)
+  let filenamePreview = '', filenameError = ''
+  try { filenamePreview = exportFilename(exportNameValue) } catch (error) { filenameError = errorText(error) }
   const untagged = project.slots.filter(a => a && !a.hasIcc && a.status === 'ready').length
   // 旧项目中的自定义名称自动归入“其他”，保留原有文本。
   const showOtherFilm = editingOtherFilm || (project.film !== '' && !isPresetFilm(project.film))
   const showOtherScanner = editingOtherScanner || (project.scanner !== '' && !isPresetScanner(project.scanner))
   const currentSession: ProjectSession = { id: activeId, project, path, saved, selected, tab, zoom,
-    undo: undo.current, redo: redo.current, editingOtherFilm, editingOtherScanner, highWidth, acceptIcc, notice, problem }
+    undo: undo.current, redo: redo.current, editingOtherFilm, editingOtherScanner, highWidth, acceptIcc, notice, problem, exportName }
   const allSessions = sessions.map(session => session.id === activeId ? currentSession : session)
+  const sessionsRef = useRef(allSessions)
+  const activeIdRef = useRef(activeId)
+  sessionsRef.current = allSessions; activeIdRef.current = activeId
+  const progressLabel = (id: string) => backgroundTasks.filter(task => task.projectId === id && taskPending(task)).map(task =>
+    `${task.kind === 'import' ? '导入' : '导出'}${task.state === 'queued' ? '等待中' : task.state === 'canceling' ? '取消中' : task.total ? ` ${task.current}/${task.total}` : '准备中'}`).join(' · ')
   const projectItems = allSessions.map(session => ({ id: session.id, title: projectTitle(session),
-    count: photoCount(session.project), saved: session.saved, path: session.path }))
+    count: photoCount(session.project), saved: session.saved, path: session.path,
+    unit: projectProfile(session.project).mode === 'strip' ? '条' : '张', taskProgress: progressLabel(session.id),
+    taskActive: backgroundTasks.some(task => task.projectId === session.id && taskPending(task)) }))
 
   useEffect(() => {
-    api.loadTemplate().then(template => { defaultTemplateRef.current = template; setProject(p => ({ ...p, template })) }).catch(error => setProblem(errorText(error)))
-    return api.onProgress(setProgress)
+    api.loadTemplate().then(template => { defaultTemplateRef.current = template }).catch(error => setProblem(errorText(error)))
+    return api.onProgress(value => {
+      if (!value.projectId) { setProgress(value); return }
+      updateTasks(tasks => tasks.map(task => task.taskId === value.taskId && taskPending(task)
+        ? { ...task, ...value, state: task.state === 'canceling' ? 'canceling' : value.state } : task))
+    })
   }, [])
   useEffect(() => { api.dirty(allSessions.some(session => !session.saved)) }, [saved, sessions, activeId])
+  useEffect(() => {
+    const clearDrag = () => { dragIndex.current = null; setDropActive(false) }
+    const cancelDrag = (event: KeyboardEvent) => { if (event.key === 'Escape') clearDrag() }
+    window.addEventListener('dragend', clearDrag)
+    window.addEventListener('blur', clearDrag)
+    window.addEventListener('keydown', cancelDrag)
+    return () => {
+      window.removeEventListener('dragend', clearDrag)
+      window.removeEventListener('blur', clearDrag)
+      window.removeEventListener('keydown', cancelDrag)
+    }
+  }, [])
 
+  // Background completions always update their originating session, including inactive tabs.
+  const updateSession = (id: string, update: (session: ProjectSession) => ProjectSession) => {
+    const previous = sessionsRef.current.find(session => session.id === id)
+    if (!previous) return
+    const next = update(previous)
+    const updated = sessionsRef.current.map(session => session.id === id ? next : session)
+    sessionsRef.current = updated; setSessions(updated)
+    if (activeIdRef.current === id) {
+      projectRef.current = next.project; setProject(next.project); setPath(next.path); setSaved(next.saved)
+      setNotice(next.notice); setProblem(next.problem); setAcceptIcc(next.acceptIcc)
+      undo.current = next.undo; redo.current = next.redo; setHistoryCount(n => n + 1)
+    }
+  }
   const change = (next: Project) => {
     if (busy || !activeId) return
-    undo.current.push(projectRef.current)
-    if (undo.current.length > 40) undo.current.shift()
-    redo.current = []
-    setProject(next); setSaved(false); setHistoryCount(n => n + 1)
+    updateSession(activeId, session => ({ ...session, project: next, saved: false,
+      undo: [...session.undo, session.project].slice(-40), redo: [] }))
   }
   const templateChange = <K extends keyof Template>(key: K, value: Template[K]) => change({ ...project, template: { ...project.template, [key]: value } })
   const fieldChange = (key: 'roll' | 'film' | 'date' | 'notes' | 'scanner', value: string) => change({ ...project, [key]: value })
   const doUndo = () => {
-    const previous = undo.current.pop()
-    if (previous) { redo.current.push(project); setProject(previous); setEditingOtherFilm(false); setEditingOtherScanner(false); setSaved(false); setHistoryCount(n => n + 1) }
+    updateSession(activeId, session => {
+      const previous = session.undo.at(-1)
+      return previous ? { ...session, project: previous, undo: session.undo.slice(0, -1), redo: [...session.redo, session.project], saved: false } : session
+    })
+    setEditingOtherFilm(false); setEditingOtherScanner(false)
   }
   const doRedo = () => {
-    const next = redo.current.pop()
-    if (next) { undo.current.push(project); setProject(next); setEditingOtherFilm(false); setEditingOtherScanner(false); setSaved(false); setHistoryCount(n => n + 1) }
+    updateSession(activeId, session => {
+      const next = session.redo.at(-1)
+      return next ? { ...session, project: next, redo: session.redo.slice(0, -1), undo: [...session.undo, session.project], saved: false } : session
+    })
+    setEditingOtherFilm(false); setEditingOtherScanner(false)
   }
   const restoreSession = (session: ProjectSession) => {
+    activeIdRef.current = session.id
     setActiveId(session.id); setProject(session.project); projectRef.current = session.project
     setPath(session.path); setSaved(session.saved); setSelected(session.selected); setTab(session.tab); setZoom(session.zoom)
     setEditingOtherFilm(session.editingOtherFilm); setEditingOtherScanner(session.editingOtherScanner)
     setHighWidth(session.highWidth); setAcceptIcc(session.acceptIcc)
-    setNotice(session.notice); setProblem(session.problem); setShowExport(false); setExportResult(null); setDropActive(false)
+    setExportName(session.exportName)
+    setNotice(session.notice); setProblem(session.problem); setShowExport(false); setShowTypePicker(false); setDropActive(false)
     undo.current = session.undo; redo.current = session.redo; setHistoryCount(n => n + 1)
   }
   const selectSession = (id: string) => {
-    if (busy || closingId || id === activeId) return
-    const target = allSessions.find(session => session.id === id)
-    if (target) { setSessions(allSessions); restoreSession(target) }
+    if (foregroundBusy || closingId || id === activeIdRef.current) return
+    const target = sessionsRef.current.find(session => session.id === id)
+    if (target) { setSessions(sessionsRef.current); restoreSession(target) }
   }
   const renameSession = (id: string, name: string) => {
-    if (busy || !name.trim()) return
-    if (id === activeId) { if (project.name !== name) change({ ...project, name }); return }
-    setSessions(allSessions.map(session => session.id === id
-      ? { ...session, project: { ...session.project, name }, saved: false,
-        undo: [...session.undo, session.project].slice(-40), redo: [] } : session))
+    if (foregroundBusy || !name.trim()) return
+    updateSession(id, session => ({ ...session, project: { ...session.project, name }, saved: false,
+      undo: [...session.undo, session.project].slice(-40), redo: [] }))
   }
   const removeSession = (id: string) => {
-    const remaining = allSessions.filter(session => session.id !== id)
+    if (tasksRef.current.some(task => task.projectId === id && taskPending(task))) return
+    const remaining = sessionsRef.current.filter(session => session.id !== id)
+    sessionsRef.current = remaining
     if (!remaining.length) {
       setSessions([])
       restoreSession(createSession(newProject(defaultTemplateRef.current), ''))
@@ -134,70 +235,100 @@ export default function App() {
     setClosingId(null)
   }
   const closeSession = (id: string) => {
-    if (busy) return
-    const session = allSessions.find(item => item.id === id)
+    if (foregroundBusy || tasksRef.current.some(task => task.projectId === id && taskPending(task))) return
+    const session = sessionsRef.current.find(item => item.id === id)
     if (!session) return
     if (!session.saved) setClosingId(id)
     else removeSession(id)
   }
   const task = async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
-    if (busy) return
+    if (foregroundBusy) return
     setBusy(true); setProblem(''); setProgress(null)
     try { return await fn() }
     catch (error) { const message = errorText(error); if (message.includes('任务已取消')) setNotice('任务已取消，现有项目保持不变。'); else setProblem(message) }
     finally { setBusy(false); setProgress(null) }
   }
-  const applyImport = (result: ImportResult | null | undefined) => {
-    if (!result) return
-    // 取消导入或没有照片时保持空工作区；真正导入照片后才创建项目。
-    if (!activeId && !result.assets.length) return
-    const before = projectRef.current
-    const next = addAssets(before, result.assets)
-    if (!activeId) {
-      next.name = `未命名项目 ${++projectNumber.current}`
-      const session = createSession(next, crypto.randomUUID())
-      setSessions([session]); restoreSession(session)
-    }
-    const added = photoCount(next) + next.overflow.length - photoCount(before) - before.overflow.length
-    // task() has finished, but the current render may still contain busy=true.
-    undo.current.push(before); redo.current = []
-    setProject(next); setSaved(false); setHistoryCount(n => n + 1); setAcceptIcc(false)
-    setNotice(`导入 ${added} 张；忽略 ${result.skipped} 个非照片项目；重复 ${result.duplicates + result.assets.length - added} 张。`)
-    if (next.overflow.length) setProblem(`已超出 42 格容量 ${next.overflow.length} 张，请处理左侧超量文件后再导出。`)
+  const beginBackground = (kind: 'import' | 'export'): BackgroundTask | null => {
+    const session = sessionsRef.current.find(session => session.id === activeIdRef.current)
+    if (!session || tasksRef.current.some(task => task.projectId === session.id && task.kind === kind && taskPending(task))) return null
+    const next: BackgroundTask = { taskId: crypto.randomUUID(), projectId: session.id, title: projectTitle(session), kind,
+      state: 'preparing', message: kind === 'import' ? '选择导入文件…' : '选择输出文件夹…', current: 0, total: 0, files: [] }
+    updateTasks(tasks => [...tasks, next]); setTasksCollapsed(false); return next
   }
-  const importPhotos = async (kind: 'files' | 'folder') => applyImport(await task(() => api.chooseImport(kind)))
+  const finishBackground = (id: string, patch: Partial<BackgroundTask>) => updateTasks(tasks => tasks.map(task => {
+    if (task.taskId !== id) return task
+    const next = { ...task, ...patch }
+    if (next.state === 'canceled' || (next.kind === 'import' && next.state === 'completed')) {
+      next.dismissAt ??= Date.now() + 2000
+    }
+    return next
+  }))
+  const importBackground = async (choose: (context: TaskContext) => Promise<ImportResult | null>) => {
+    const pending = beginBackground('import')
+    if (!pending) return
+    try {
+      const result = await choose({ taskId: pending.taskId, projectId: pending.projectId })
+      if (!result) { finishBackground(pending.taskId, { state: 'canceled', message: '已取消导入' }); return }
+      let message = '导入完成'
+      updateSession(pending.projectId, session => {
+        const before = session.project, profile = projectProfile(before), unit = profile.mode === 'strip' ? '条' : '张'
+        let next = addAssets(before, result.assets.map(asset => ({ ...asset, rotation: rotationForProfile(asset, profile) })))
+        if (next.slots.length !== before.slots.length) next = fitProjectPage(next)
+        const added = photoCount(next) + next.overflow.length - photoCount(before) - before.overflow.length
+        const failures = result.assets.filter(asset => asset.status === 'error').length
+        message = `导入完成 · ${added} ${unit}${failures ? `，${failures} 个文件读取失败` : ''}${next.overflow.length ? `，超量 ${next.overflow.length} ${unit}` : ''}`
+        return { ...session, project: next, saved: false, undo: [...session.undo, before].slice(-40), redo: [], acceptIcc: false,
+          notice: `导入 ${added} ${unit}；忽略 ${result.skipped} 个非照片项目；重复 ${result.duplicates + result.assets.length - added} ${unit}。`,
+          problem: next.overflow.length ? `已超出 ${next.slots.length} 格容量 ${next.overflow.length} ${unit}，请处理左侧超量文件后再导出。` : '' }
+      })
+      finishBackground(pending.taskId, { state: 'completed', message })
+    } catch (error) {
+      const message = errorText(error), canceled = message.includes('任务已取消')
+      finishBackground(pending.taskId, { state: canceled ? 'canceled' : 'failed', message })
+    }
+  }
+  const importPhotos = async (kind: 'files' | 'folder') => {
+    if (!activeId) { setShowTypePicker(true); return }
+    await importBackground(context => api.chooseImport(kind, context))
+  }
   const save = async (saveAs = false) => {
     if (!activeId) return false
-    const otherPaths = allSessions.filter(session => session.id !== activeId && session.path).map(session => session.path!)
-    const filename = await task(() => api.saveProject(projectRef.current, saveAs, path, otherPaths))
-    if (filename) { setPath(filename); setSaved(true); setNotice('项目已保存。项目引用原图，请保留原图文件。'); return true }
+    const id = activeIdRef.current, snapshot = projectRef.current
+    const otherPaths = sessionsRef.current.filter(session => session.id !== id && session.path).map(session => session.path!)
+    const filename = await task(() => api.saveProject(snapshot, saveAs, path, otherPaths))
+    if (filename) { updateSession(id, session => ({ ...session, path: filename, saved: session.project === snapshot, notice: '项目已保存。项目引用原图，请保留原图文件。' })); return true }
     return false
   }
   const open = async () => {
     const opened = await task(() => api.openProject())
     if (!opened) return
-    const existing = allSessions.find(session => session.path && normalizedProjectPath(session.path) === normalizedProjectPath(opened.path))
-    if (existing) { setSessions(allSessions); restoreSession(existing); setProblem(''); setNotice('项目已打开，已切换到对应标签。'); return }
+    const existing = sessionsRef.current.find(session => session.path && normalizedProjectPath(session.path) === normalizedProjectPath(opened.path))
+    if (existing) { setSessions(sessionsRef.current); restoreSession(existing); setProblem(''); setNotice('项目已打开，已切换到对应标签。'); return }
     const next = createSession(opened.project, crypto.randomUUID(), opened.path)
-    setSessions([...allSessions, next]); restoreSession(next)
+    sessionsRef.current = [...sessionsRef.current, next]; setSessions(sessionsRef.current); restoreSession(next)
   }
-  const fresh = async () => {
+  const fresh = () => { if (!foregroundBusy) setShowTypePicker(true) }
+  const chooseType = async (format: ScanType) => {
     const template = await task(() => api.loadTemplate())
     if (!template) return
     defaultTemplateRef.current = template
-    const next = createSession({ ...newProject(template), name: `未命名项目 ${++projectNumber.current}` }, crypto.randomUUID())
-    setSessions([...allSessions, next]); restoreSession(next)
+    // 只检查当前打开项目的名称，关闭或重命名后即可复用空出的编号。
+    const usedNames = new Set(sessionsRef.current.map(projectTitle))
+    let number = 1
+    while (usedNames.has(`未命名项目 ${number}`)) number++
+    const next = createSession({ ...newScanProject(template, format), name: `未命名项目 ${number}` }, crypto.randomUUID())
+    sessionsRef.current = [...sessionsRef.current, next]; setSessions(sessionsRef.current); restoreSession(next)
   }
   const saveAndClose = async () => {
-    const session = allSessions.find(item => item.id === closingId)
+    const session = sessionsRef.current.find(item => item.id === closingId)
     if (!session) return
-    const otherPaths = allSessions.filter(item => item.id !== session.id && item.path).map(item => item.path!)
+    const otherPaths = sessionsRef.current.filter(item => item.id !== session.id && item.path).map(item => item.path!)
     const filename = await task(() => api.saveProject(session.project, false, session.path, otherPaths))
     if (filename) removeSession(session.id)
   }
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || busy || closingId) return
+      if (!(event.ctrlKey || event.metaKey) || busy || closingId || showTypePicker) return
       if (event.key.toLowerCase() === 's') { event.preventDefault(); void save(event.shiftKey) }
       if (event.key.toLowerCase() === 'z' && !['INPUT', 'TEXTAREA'].includes((event.target as HTMLElement)?.tagName)) {
         event.preventDefault(); event.shiftKey ? doRedo() : doUndo()
@@ -221,65 +352,98 @@ export default function App() {
     if (selected === null) return
     const asset = await task(() => api.replacePhoto())
     if (asset) {
-      const next = { ...project, slots: [...project.slots] }; next.slots[selected] = asset
+      const next = { ...project, slots: [...project.slots] }; next.slots[selected] = { ...asset, rotation: rotationForProfile(asset, profile) }
       undo.current.push(project); redo.current = []; setProject(next); setSaved(false); setAcceptIcc(false)
     }
   }
   const drop = async (event: DragEvent) => {
     event.preventDefault(); setDropActive(false)
-    if (!event.dataTransfer.files.length || busy) return
-    applyImport(await task(() => api.importDropped(Array.from(event.dataTransfer.files))))
+    if (dragIndex.current !== null || event.dataTransfer.types.includes(photoDragType)) { dragIndex.current = null; return }
+    if (!event.dataTransfer.files.length || busy || showTypePicker || closingId) return
+    if (!activeId) { setNotice('请先选择扫描类型，再拖入照片或整条扫描文件。'); return }
+    const files = Array.from(event.dataTransfer.files)
+    await importBackground(context => api.importDropped(files, context))
   }
   const runExport = async () => {
-    const result = await task(() => api.exportProject(project, { widths: [highWidth], quality: DEFAULT_JPEG_QUALITY, acceptUntagged: acceptIcc }))
-    if (result) { setExportResult(result); if (result.files.length) setNotice(`已导出 ${result.files.length} 个文件。`) }
+    if (filenameError || importing) return
+    const pending = beginBackground('export')
+    if (!pending) return
+    const snapshot = structuredClone(projectRef.current)
+    const options = { widths: [highWidth], quality: DEFAULT_JPEG_QUALITY, acceptUntagged: acceptIcc, filename: exportNameValue }
+    setShowExport(false)
+    try {
+      const result = await api.exportProject(snapshot, options, { taskId: pending.taskId, projectId: pending.projectId })
+      const message = result.canceled ? '导出已取消' : result.errors.length ? result.errors.join('\n') : '导出完成'
+      finishBackground(pending.taskId, { state: result.canceled ? 'canceled' : result.errors.length ? 'failed' : 'completed', message, files: result.files })
+      updateSession(pending.projectId, session => ({ ...session, notice: result.files.length ? `已导出 ${result.files.length} 个文件。` : session.notice }))
+    } catch (error) {
+      const message = errorText(error)
+      finishBackground(pending.taskId, { state: message.includes('任务已取消') ? 'canceled' : 'failed', message })
+    }
+  }
+  const cancelBackground = async (pending: BackgroundTask) => {
+    finishBackground(pending.taskId, { state: 'canceling', message: '正在取消…' })
+    try { await api.cancelTask(pending.taskId) }
+    catch (error) { finishBackground(pending.taskId, { state: 'failed', message: errorText(error) }) }
   }
 
-  return <div className={`app ${dropActive ? 'file-hover' : ''}`} onDragOver={event => { event.preventDefault(); if (event.dataTransfer.types.includes('Files')) setDropActive(true) }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropActive(false) }} onDrop={drop}>
+  return <div className={`app ${dropActive ? 'file-hover' : ''}`} onDragOver={event => {
+    event.preventDefault()
+    setDropActive(dragIndex.current === null && !event.dataTransfer.types.includes(photoDragType)
+      && event.dataTransfer.types.includes('Files') && !busy && !showTypePicker && !closingId)
+  }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropActive(false) }} onDrop={drop}>
     <header className="toolbar">
       <div className="identity"><img className="brand-icon" src={fixedLogo.data} alt="PD Darkroom Logo"/><div><strong>PD Impression</strong><small>暗房胶卷索引</small></div></div>
-      <div className="tools"><Button disabled={busy} onClick={() => void fresh()}>＋ 新建</Button><Button disabled={busy} onClick={() => void open()}>打开项目</Button>
+      <div className="tools"><Button disabled={foregroundBusy} onClick={() => void fresh()}>＋ 新建</Button><Button disabled={foregroundBusy} onClick={() => void open()}>打开项目</Button>
         <Button disabled={busy} onClick={() => void importPhotos('files')}>导入照片</Button><Button disabled={busy || !activeId} onClick={() => void save()}>保存</Button>
         <Button disabled={busy || !activeId} onClick={() => void save(true)} title="另存项目">另存</Button>
         <span className="separator"/><Button title="撤销 Ctrl/Cmd Z" disabled={busy || !undo.current.length} onClick={doUndo}>↶</Button><Button title="重做" disabled={busy || !redo.current.length} onClick={doRedo}>↷</Button>
       </div>
-      <div className="toolbar-end"><span className="offline"><i/> 本地离线</span><Button primary disabled={busy || !count} onClick={() => { setExportResult(null); setShowExport(true) }}>导出接触印象 ↗</Button></div>
+      <div className="toolbar-end"><span className="offline"><i/> 本地离线</span><Button primary disabled={busy || exporting || !count} onClick={() => { setShowExport(true) }}>导出接触印象 ↗</Button></div>
     </header>
     <main className="workspace">
       <aside className="library">
         <section className="project-directory">
-          <div className="project-directory-heading"><h2>项目目录 <span className="badge">{sessions.length}</span></h2><button className="text-button" disabled={busy} onClick={() => void fresh()}>＋ 新建</button></div>
-          <ProjectNavigation items={projectItems} activeId={activeId} disabled={busy || Boolean(closingId)} mode="directory"
+          <div className="project-directory-heading"><h2>项目目录 <span className="badge">{sessions.length}</span></h2><button className="text-button" disabled={foregroundBusy} onClick={() => void fresh()}>＋ 新建</button></div>
+          <ProjectNavigation items={projectItems} activeId={activeId} disabled={foregroundBusy || Boolean(closingId)} mode="directory"
             onSelect={selectSession} onRename={renameSession} onClose={closeSession} onNew={() => void fresh()}/>
         </section>
-        <div className="panel-heading"><h2>本卷照片 <span className="badge">{count}</span></h2><button className="text-button" disabled={busy} onClick={() => void importPhotos('folder')}>导入文件夹</button></div>
+        <div className="panel-heading"><h2>{profile.mode === 'strip' ? '本卷扫描条' : '本卷照片'} <span className="badge">{count}</span></h2><button className="text-button" disabled={busy} onClick={() => void importPhotos('folder')}>导入文件夹</button></div>
         <div className="sort-bar"><span>文件名自然排序</span><button className="text-button" disabled={busy || !count} onClick={() => {
           const sorted = project.slots.filter(a => a !== null).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN', { numeric: true }))
-          change({ ...project, slots: [...sorted, ...Array.from({ length: 42 - sorted.length }, () => null)] })
+          change({ ...project, slots: [...sorted, ...Array.from({ length: capacity - sorted.length }, () => null)] })
         }}>重新排序 ↓</button></div>
         <div className="photo-list">
           {!count && <div className="list-empty"><span>▧</span><p>一卷的故事<br/>从第一张照片开始</p></div>}
           {project.slots.map((asset, index) => (asset || selected === index || (count > 0 && index <= project.slots.findLastIndex(Boolean))) &&
             <button className={`photo-row ${selected === index ? 'active' : ''} ${asset?.status === 'error' ? 'failed' : ''}`} key={asset?.id ?? `empty-${index}`}
-              draggable={!busy && Boolean(asset)} onDragStart={() => { dragIndex.current = index }} onDragEnd={() => { dragIndex.current = null }}
-              onDragOver={event => event.preventDefault()} onDrop={event => { if (dragIndex.current !== null) { event.preventDefault(); event.stopPropagation(); change(moveSlot(project, dragIndex.current, index)); setSelected(index); dragIndex.current = null } }}
+              draggable={!busy && Boolean(asset)} onDragStart={event => {
+                dragIndex.current = index; setDropActive(false)
+                event.dataTransfer.clearData()
+                event.dataTransfer.setData(photoDragType, String(index))
+                event.dataTransfer.effectAllowed = 'move'
+              }} onDragEnd={() => { dragIndex.current = null; setDropActive(false) }}
+              onDragOver={event => event.preventDefault()} onDrop={event => { if (dragIndex.current !== null) { event.preventDefault(); event.stopPropagation(); change(moveSlot(project, dragIndex.current, index)); setSelected(index); dragIndex.current = null; setDropActive(false) } }}
               onClick={() => setSelected(index)}>
-              <span className="thumb">{asset?.preview ? <img src={asset.preview} alt=""/> : <span>{asset?.status === 'error' ? '!' : '—'}</span>}</span>
+              <span className="thumb">{asset?.preview ? <img src={asset.preview} alt="" draggable={false}/> : <span>{asset?.status === 'error' ? '!' : '—'}</span>}</span>
               <span className="photo-meta"><span><b>{String(index + 1).padStart(2, '0')}</b> {asset?.name ?? '空位'}</span><small>{asset ? asset.status === 'error' ? '读取失败 · 选中查看' : `${asset.name.match(/\.(tiff?)$/i) ? 'TIFF' : 'JPEG'} · ${(asset.size / 1e6).toFixed(1)} MB` : '保留黑色胶片'}</small></span>
             </button>)}
-          {project.overflow.length > 0 && <div className="overflow"><strong>超出容量 {project.overflow.length} 张</strong><p>这些文件尚未放入成品，请处理后导出。</p>{project.overflow.map(a => <div key={a.id}><span>{a.name}</span><button onClick={() => change({ ...project, overflow: project.overflow.filter(x => x.id !== a.id) })}>移除</button></div>)}</div>}
+          {project.overflow.length > 0 && <div className="overflow"><strong>超出容量 {project.overflow.length} {unit}</strong><p>这些文件尚未放入成品，请处理后导出。</p>{project.overflow.map(a => <div key={a.id}><span>{a.name}</span><button onClick={() => change({ ...project, overflow: project.overflow.filter(x => x.id !== a.id) })}>移除</button></div>)}</div>}
         </div>
       </aside>
       <section className="preview-panel">
-        {sessions.length > 0 && <ProjectNavigation items={projectItems} activeId={activeId} disabled={busy || Boolean(closingId)} mode="tabs"
+        {sessions.length > 0 && <ProjectNavigation items={projectItems} activeId={activeId} disabled={foregroundBusy || Boolean(closingId)} mode="tabs"
           onSelect={selectSession} onRename={renameSession} onClose={closeSession} onNew={() => void fresh()}/>}
-        <div className="preview-heading"><div><h2>成品预览</h2><small>135 / 42 FRAMES</small></div><div className="zoom-tools"><Button onClick={() => setZoom(z => Math.max(0.5, z - 0.25))}>−</Button><span>{Math.round(zoom * 100)}%</span><Button onClick={() => setZoom(z => Math.min(3, z + 0.25))}>＋</Button><Button onClick={() => setZoom(1)}>适合窗口</Button></div></div>
+        <div className="preview-heading"><div><h2>成品预览</h2><small>{activeId ? `${profile.label} / ${capacity} ${profile.mode === 'strip' ? 'STRIPS' : 'FRAMES'}` : '选择扫描类型后开始'}</small></div><div className="zoom-tools"><Button onClick={() => setZoom(z => Math.max(0.5, z - 0.25))}>−</Button><span>{Math.round(zoom * 100)}%</span><Button onClick={() => setZoom(z => Math.min(5, z + 0.25))}>＋</Button><Button onClick={() => setZoom(1)}>适合窗口</Button></div></div>
         <div className="canvas-scroll">
-          {!count && !project.overflow.length ? <div className="welcome">
+          {!activeId ? <div className="scan-welcome">
             <img className="welcome-logo" src={fixedLogo.data} alt="PD Darkroom Logo"/>
-            <p>将扫描照片或文件夹拖到这里<br/>支持 TIFF 和 JPEG，全程在本机处理</p>
+            <ScanTypePicker disabled={foregroundBusy} onChoose={type => void chooseType(type)}/>
+          </div> : !count && !project.overflow.length ? <div className="welcome">
+            <img className="welcome-logo" src={fixedLogo.data} alt="PD Darkroom Logo"/>
+            <p>{profile.mode === 'strip' ? '将整条扫描 TIFF 或文件夹拖到这里，每份文件完整保留' : '将扫描照片或文件夹拖到这里'}<br/>支持 TIFF 和 JPEG，全程在本机处理</p>
             <div className="welcome-actions"><Button primary disabled={busy} onClick={() => void importPhotos('files')}>选择照片</Button><Button disabled={busy} onClick={() => void importPhotos('folder')}>选择文件夹</Button></div>
-            <small>135 · 42 格模板 · 真实胶片比例</small>
+            <small>{profile.label} · {capacityLabel(profile)}<br/>{project.layoutVersion === 1 ? '原版 135 模板' : `高 : 宽 = ${ratioLabel(profile)} · 按扫描比例排版`}</small>
           </div>
             : <div className="paper-wrap" style={{ width: `${Math.round(490 * zoom)}px` }}>
               <div className="paper" data-testid="sheet" onClick={event => {
@@ -288,7 +452,7 @@ export default function App() {
                 const hit = layout.frames.find(f => x >= f.x && x <= f.x + f.width && y >= f.y && y <= f.y + f.height)
                 if (hit) setSelected(hit.index)
               }} dangerouslySetInnerHTML={{ __html: svg }}/>
-              <div className="paper-caption"><span>{layout.width.toFixed(0)} × {layout.height.toFixed(1)} mm</span><span>{layout.hidden > 0 ? `已隐藏末尾 ${layout.hidden} 条空白胶片` : '完整显示 7 条胶片'}</span></div>
+              <div className="paper-caption"><span>{layout.width.toFixed(0)} × {layout.height.toFixed(1)} mm</span><span>{layout.hidden > 0 ? `已隐藏末尾 ${layout.hidden} 条空白胶片` : `完整显示 ${layout.maxRows} 条胶片`}</span></div>
             </div>}
         </div>
         {layout.errors.length > 0 && count > 0 && <div className="layout-warning">{layout.errors.join(' ')}</div>}
@@ -298,7 +462,8 @@ export default function App() {
         <fieldset disabled={busy || !activeId} className="settings-scroll">
           {tab === 'info' && <>
             <section className="settings-group"><div className="section-label">ROLL DETAILS<span>01</span></div><h3>本卷信息</h3>
-              <label className="stack-field">画幅<select value="135" onChange={() => {}}><option value="135">135 全画幅 · 42 格</option><option disabled>120 模板 · 待后续接入</option></select></label>
+              <label className="stack-field">扫描类型<input readOnly value={activeId ? `${profile.label}${project.layoutVersion === 1 ? ' · 原版模板' : ''}` : '请先选择扫描类型'}/></label>
+              {activeId && <p className="help">{project.layoutVersion === 1 ? '原版 135 · 36×24mm 画格' : `扫描比例（高 : 宽）${ratioLabel(profile)}`}<br/>{profile.mode === 'strip' ? '每个文件是一整条；不切分、不推算照片张数。' : `${capacity} 格 · 完整保留照片，不拉伸、不裁切。`}</p>}
               <label className="stack-field">订单编号 / 拍摄者<input value={project.roll} maxLength={120} placeholder="例如 PD-001 或拍摄者姓名" onChange={e => fieldChange('roll', e.target.value)}/></label>
               <label className="stack-field">
                 胶卷型号
@@ -338,8 +503,8 @@ export default function App() {
                   fieldChange('scanner', e.target.value)
                 }}/>
               </label>}
-              <label className="stack-field">备注<textarea rows={3} maxLength={200} placeholder="选填，显示在页面底部" value={project.notes} onChange={e => fieldChange('notes', e.target.value)}/></label>
-            </section><section className="settings-group summary"><h3>本卷概览</h3><div><span>照片</span><strong>{count} 张</strong></div><div><span>空位</span><strong>{42 - count} 格</strong></div><div><span>显示胶片</span><strong>{count ? layout.rows : 0} 条</strong></div><p>所有编辑仅记录在项目中，<br/>原始扫描文件保持不变。</p></section>
+              <label className="stack-field">备注<textarea aria-label="备注" rows={3} maxLength={200} placeholder="选填，显示在模板最后一行下方" value={project.notes} onChange={e => fieldChange('notes', e.target.value)}/></label>
+            </section><section className="settings-group summary"><h3>本卷概览</h3><div><span>{profile.mode === 'strip' ? '扫描条' : '照片'}</span><strong>{count} {unit}</strong></div><div><span>空位</span><strong>{activeId ? capacity - count : 0} 格</strong></div><div><span>显示胶片</span><strong>{count ? layout.rows : 0} 条</strong></div><p>所有编辑仅记录在项目中，<br/>原始扫描文件保持不变。</p></section>
             {selectedPhoto && <section className="settings-group"><h3>已选中 · {String(selected! + 1).padStart(2, '0')}</h3><p className="selected-name">{selectedPhoto.name}</p><div className="button-grid"><Button onClick={() => editPhoto('left')}>↶ 左转</Button><Button onClick={() => editPhoto('right')}>↷ 右转</Button></div><button className="text-button" onClick={() => setTab('photo')}>查看照片操作 →</button></section>}
           </>}
           {tab === 'template' && <>
@@ -359,7 +524,7 @@ export default function App() {
               <label className="field"><span>页面背景</span><input type="color" value={project.template.background} onChange={e => templateChange('background', e.target.value)}/></label>
               <NumberField label="卷信息字号" min={1.5} max={5} step={0.1} value={project.template.infoSize} onChange={v => templateChange('infoSize', v)}/>
               <label className="check"><input type="checkbox" checked={project.template.showDate} onChange={e => templateChange('showDate', e.target.checked)}/>显示冲扫日期</label>
-            </section><div className="settings-actions"><Button onClick={() => change({ ...project, template: structuredClone(defaultTemplate) })}>恢复默认</Button><Button onClick={() => { void api.saveTemplate(project.template).then(() => setNotice('默认模板已保存；已有项目不会随之改变。')).catch(e => setProblem(errorText(e))) }}>保存为默认模板</Button></div>
+            </section><div className="settings-actions"><Button onClick={() => change(project.layoutVersion === 1 ? { ...project, template: structuredClone(defaultTemplate) } : fitProjectPage({ ...project, template: structuredClone(defaultTemplate) }))}>恢复默认</Button><Button onClick={() => { void api.saveTemplate(project.template).then(() => setNotice('默认模板已保存；已有项目不会随之改变。')).catch(e => setProblem(errorText(e))) }}>保存为默认模板</Button></div>
           </>}
           {tab === 'photo' && <section className="settings-group"><div className="section-label">FRAME INSPECTOR<span>03</span></div><h3>{selected === null ? '选择一张照片' : `索引 ${String(selected + 1).padStart(2, '0')}`}</h3>
             {selected === null ? <p className="help">点击左侧列表或中央画格，查看信息并调整照片。</p> : <>
@@ -373,20 +538,44 @@ export default function App() {
         </fieldset>
       </aside>
     </main>
-    {(notice || problem) && <div className={`notice ${problem ? 'error' : ''}`} role="status"><span>{problem || notice}</span>{problem && <button onClick={() => setProblem('')}>关闭</button>}</div>}
-    <footer className="status"><span>135 <i/> {count} 张照片 <i/> {42 - count} 个空位 <i/> 容量 42 格</span><span title={path ?? ''}>{!activeId ? '未打开项目' : saved ? (path ? '已保存' : '新项目') : '未保存'} · 本地处理</span></footer>
-    {dropActive && <div className="drop-overlay">松开以导入一卷照片<span>TIFF / JPEG · 原图保持不变</span></div>}
-    {busy && <div className="busy"><div><span className="spinner"/><strong>{progress?.message ?? '正在准备…'}</strong><span>{progress ? `${progress.current} / ${progress.total}` : ''}</span><Button onClick={() => void api.cancelTask()}>取消任务</Button></div><progress value={progress?.current ?? 0} max={progress?.total || 1}/></div>}
+    <div className="task-panel">
+      {(notice || problem || backgroundTasks.length > 0) && <div className={`notice ${problem ? 'error' : ''} ${backgroundTasks.length > 0 && !tasksCollapsed ? 'tasks-expanded' : ''}`}>
+        <span role="status" title={problem || notice}>{problem || notice}</span>{problem && <button onClick={() => setProblem('')}>关闭</button>}
+      {backgroundTasks.length > 0 && !tasksCollapsed && <div className="task-list" id="background-task-list" role="region" aria-label="后台任务">{[...backgroundTasks].reverse().map(task => <section
+        className={`task-card ${task.state}`} key={task.taskId} data-task-id={task.taskId} data-project-id={task.projectId} data-state={task.state}>
+        <button className="text-button task-project" title={task.title} disabled={foregroundBusy || !allSessions.some(session => session.id === task.projectId)} onClick={() => selectSession(task.projectId)}>{task.title}</button>
+        <span className="task-card-status" role="status" title={task.message}>{taskStatus(task)}</span>
+        {taskPending(task) && task.total > 0 && <small>{task.current} / {task.total}</small>}
+        {task.files.map(file => <button key={file} className="text-button task-output" title={file} onClick={() => {
+          void api.reveal(file).then(() => updateTasks(tasks => tasks.filter(item => item.taskId !== task.taskId)))
+            .catch(error => setProblem(errorText(error)))
+        }}>打开文件夹</button>)}
+          {taskPending(task) ? <button className="text-button" disabled={task.state === 'canceling'} onClick={() => void cancelBackground(task)}>取消任务</button>
+            : <button className="text-button" aria-label={`移除任务提示 ${task.title}`} onClick={() => updateTasks(tasks => tasks.filter(item => item.taskId !== task.taskId))}>×</button>}
+      </section>)}</div>}
+        {backgroundTasks.length > 0 && <div className="task-panel-heading">
+          <strong>后台任务 · {backgroundTasks.filter(taskPending).length} 个进行中</strong>
+          <button className="text-button" aria-expanded={!tasksCollapsed} aria-controls="background-task-list" onClick={() => setTasksCollapsed(value => !value)}>{tasksCollapsed ? '展开任务' : '收起任务'}</button>
+        </div>}
+      </div>}
+    </div>
+    <footer className="status"><span>{activeId ? <>{profile.label} <i/> {count} {unit} <i/> {capacity - count} 个空位 <i/> 容量 {capacity} 格</> : '请先选择扫描类型'}</span><span title={path ?? ''}>{!activeId ? '未打开项目' : saved ? (path ? '已保存' : '新项目') : '未保存'} · 本地处理</span></footer>
+    {dropActive && <div className="drop-overlay">{activeId ? '松开以导入扫描文件' : '请先选择扫描类型'}<span>TIFF / JPEG · 原图保持不变</span></div>}
+    {foregroundBusy && <div className="busy"><div><span className="spinner"/><strong>{progress?.message ?? '正在准备…'}</strong><span>{progress ? `${progress.current} / ${progress.total}` : ''}</span>{progress && <Button onClick={() => void api.cancelTask(progress.taskId)}>取消任务</Button>}</div><progress value={progress?.current ?? 0} max={progress?.total || 1}/></div>}
     {showExport && <div className="modal-backdrop"><section className="modal" role="dialog" aria-label="导出索引图"><div className="modal-heading"><div><small>EXPORT CONTACT SHEET</small><h2>导出索引图</h2></div><Button disabled={busy} onClick={() => setShowExport(false)}>✕</Button></div>
       <p className="help">从 TIFF 原图生成 · sRGB JPEG · 单张不超过 25MB</p>
+      <label className="stack-field">导出文件名<input value={exportNameValue} maxLength={185} disabled={busy}
+        aria-invalid={Boolean(filenameError)} placeholder="例如 0001接触印象"
+        onChange={event => { setExportName(event.target.value) }}/></label>
+      <div className="export-filename-help"><small className="help">{filenameError || `将保存为：${filenamePreview}`}</small>
+        <button className="text-button" disabled={busy || exportName === null} onClick={() => { setExportName(null) }}>恢复默认命名</button></div>
       <div className="export-option"><div><strong>高清交付版</strong><small>优先保留现有画质，超出 25MB 时自动优化</small></div><select aria-label="高清输出宽度" value={highWidth} onChange={e => setHighWidth(Number(e.target.value))}><option value={6000}>6000 px 宽</option><option value={8000}>8000 px 宽</option><option value={10000}>10000 px 宽</option></select></div>
-      <div className="export-spec"><span>整图 {highWidth} × {Math.round(highWidth * Math.SQRT2)} px</span><span>每格约 {Math.round(36 / layout.width * highWidth)} × {Math.round(24 / layout.width * highWidth)} px</span></div>
-      <p className="help">页面 {layout.width} × {layout.height.toFixed(1)}mm。原尺寸打印需要 100%，适配 A4 会缩小。输出档位为开发初始值，实际 TIFF 性能尚待验证。</p>
-      {!project.roll && <p className="warning-inline">未填写订单编号或拍摄者，文件名将使用“未命名胶卷”。</p>}
+      <div className="export-spec"><span>整图 {highWidth} × {Math.round(highWidth * Math.SQRT2)} px</span><span>{profile.mode === 'strip' ? '每条' : '每格'}约 {Math.round(profile.frameWidth / layout.width * highWidth)} × {Math.round(profile.frameHeight / layout.width * highWidth)} px</span></div>
+      <p className="help">页面 {layout.width} × {layout.height.toFixed(1)}mm，保持 A 系列比例。{project.layoutVersion === 1 ? '原尺寸打印需要 100%，适配 A4 会缩小。' : '画格使用扫描长宽比；页面毫米数是打印尺寸，不是底片实测尺寸。'}</p>
+      {!project.roll && exportName === null && <p className="warning-inline">未填写订单编号或拍摄者，可在上方修改导出文件名。</p>}
       {untagged > 0 && <label className="check warning-inline"><input type="checkbox" checked={acceptIcc} onChange={e => setAcceptIcc(e.target.checked)}/>确认将 {untagged} 张无 ICC 图片按 sRGB／灰度解释</label>}
       {errors.map(e => <p className="error-inline" key={e}>{e}</p>)}
-      {exportResult && <div className="export-result"><strong>{exportResult.canceled ? '导出已取消' : exportResult.errors.length ? '部分或全部导出失败' : '导出完成'}</strong>{exportResult.files.map(file => <button key={file} className="text-button" onClick={() => void api.reveal(file)}>打开所在文件夹 · {file.split(/[\\/]/).pop()}</button>)}{exportResult.errors.map(e => <p className="error-inline" key={e}>{e}</p>)}</div>}
-      <div className="modal-actions"><Button disabled={busy} onClick={() => setShowExport(false)}>关闭</Button><Button primary disabled={busy || errors.length > 0 || (untagged > 0 && !acceptIcc)} onClick={() => void runExport()}>选择文件夹并导出 ↗</Button></div>
+      <div className="modal-actions"><Button disabled={foregroundBusy} onClick={() => setShowExport(false)}>关闭</Button><Button primary disabled={busy || exporting || Boolean(filenameError) || errors.length > 0 || (untagged > 0 && !acceptIcc)} onClick={() => void runExport()}>选择文件夹并导出 ↗</Button></div>
     </section></div>}
     {closingId && <div className="modal-backdrop"><section className="modal" role="dialog" aria-label="关闭项目确认">
       <div className="modal-heading"><h2>保存修改后关闭？</h2></div>
@@ -394,10 +583,15 @@ export default function App() {
       <p className="help">关闭标签不会删除已保存的项目文件或原始照片。</p>
       {problem && <p className="error-inline">{problem}</p>}
       <div className="modal-actions">
-        <Button disabled={busy} onClick={() => setClosingId(null)}>取消</Button>
-        <Button disabled={busy} onClick={() => removeSession(closingId)}>不保存关闭</Button>
-        <Button primary disabled={busy} onClick={() => void saveAndClose()}>保存并关闭</Button>
+        <Button disabled={foregroundBusy} onClick={() => setClosingId(null)}>取消</Button>
+        <Button disabled={foregroundBusy} onClick={() => removeSession(closingId)}>不保存关闭</Button>
+        <Button primary disabled={foregroundBusy} onClick={() => void saveAndClose()}>保存并关闭</Button>
       </div>
+    </section></div>}
+    {showTypePicker && <div className="modal-backdrop"><section className="modal scan-picker-modal" role="dialog" aria-label="新建扫描项目">
+      <div className="scan-picker-close"><Button disabled={foregroundBusy} onClick={() => setShowTypePicker(false)}>取消</Button></div>
+      <ScanTypePicker disabled={foregroundBusy} onChoose={type => void chooseType(type)}/>
+      {problem && <p className="error-inline">{problem}</p>}
     </section></div>}
     <span className="sr-only">{historyCount}</span>
   </div>

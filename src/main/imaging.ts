@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto'
 import { stat, rename, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { type Asset, type Project, type Progress } from '../shared/model'
-import { exportErrors, layoutSheet, sheetSvg } from '../shared/layout'
+import { exportErrors, layoutSheet, sheetSvg, rollHeader } from '../shared/layout'
+import { measureHeaderOrderY } from './header-spacing'
 import { MAX_EXPORT_BYTES } from '../shared/export-settings'
 
 sharp.cache({ memory: 96, files: 16, items: 60 })
@@ -89,7 +90,8 @@ export async function exportSheet(project: Project, width: number, quality: numb
     onProgress({ message: '合成胶片与品牌信息', current: frames.length, total: frames.length + 1 })
     // Use explicit raster dimensions. Millimetre SVG dimensions combined with
     // an input density can be applied twice by the SVG loader and explode RAM.
-    const exportSvg = sheetSvg(project).replace(/width="[^"]+mm" height="[^"]+mm"/, `width="${width}" height="${height}"`)
+    const orderY = await measureHeaderOrderY(rollHeader(project))
+    const exportSvg = sheetSvg(project, { orderY }).replace(/width="[^"]+mm" height="[^"]+mm"/, `width="${width}" height="${height}"`)
     const image = sharp(Buffer.from(exportSvg), { limitInputPixels: 150_000_000 })
       .resize(width, height, { fit: 'fill' }).composite(overlays)
       .withIccProfile('srgb').withMetadata({ density })

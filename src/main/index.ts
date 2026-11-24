@@ -1,13 +1,16 @@
-import { app, BrowserWindow, dialog, ipcMain, shell, utilityProcess, type UtilityProcess } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell, utilityProcess } from 'electron'
 import { readFile, writeFile, readdir, stat, mkdir, rename, rm } from 'node:fs/promises'
 import { join, dirname, resolve, isAbsolute, relative, extname, basename } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { projectSchema, templateSchema, defaultTemplate, type Asset, type Project, type ExportResult } from '../shared/model'
+import { projectSchema, templateSchema, defaultTemplate, type Asset, type Project, type ExportResult, type TaskContext, type Progress } from '../shared/model'
 import { exportErrors } from '../shared/layout'
+import { defaultExportName, exportFilename } from '../shared/export-settings'
+import { ImageTaskQueue, cancellationError, type ImageJob } from './task-queue'
 
 let window: BrowserWindow
-let activeTask: { child: UtilityProcess; reject: (error: Error) => void; temporary?: string } | null = null
+const operations = new Map<string, { context: TaskContext; canceled: boolean }>()
+const reservedExports = new Set<string>()
 let dirty = false
 let canClose = false
 const imagePattern = /\.(tiff?|jpe?g)$/i
@@ -16,48 +19,66 @@ const isCanceled = (error: unknown) => error instanceof Error && error.message =
 const comparablePath = (file: string) => process.platform === 'win32' ? resolve(file).toLowerCase() : resolve(file)
 const isSourcePath = (project: Project, file: string) => [...project.slots, ...project.overflow].some(a => a && comparablePath(a.path) === comparablePath(file))
 
-function runTask<T>(job: Record<string, unknown>): Promise<T> {
-  if (activeTask) return Promise.reject(new Error('已有图片任务正在处理。'))
-  return new Promise((resolveResult, reject) => {
-    const child = utilityProcess.fork(join(__dirname, 'worker.js'), [], { serviceName: 'PD Impression Images', stdio: 'pipe' })
-    const task = { child, reject, temporary: job.temporary as string | undefined }
-    activeTask = task
-    let settled = false
-    const finish = (result: T | undefined, error?: Error) => {
-      if (settled) return
-      settled = true
-      if (activeTask === task) activeTask = null
-      child.kill()
-      if (error) reject(error)
-      else resolveResult(result as T)
-    }
-    task.reject = error => finish(undefined, error)
-    child.on('message', message => {
-      if (message.type === 'progress') window?.webContents.send('task:progress', message.progress)
-      if (message.type === 'done') finish(message.result)
-      if (message.type === 'error') finish(undefined, new Error(message.message))
+async function executeImageJob(job: ImageJob, signal: AbortSignal, progress: (value: Progress) => void): Promise<unknown> {
+  if (signal.aborted) throw cancellationError()
+  const child = utilityProcess.fork(join(__dirname, 'worker.js'), [], { serviceName: 'PD Impression Images', stdio: 'pipe' })
+  let exited = false, failed = true
+  const exit = new Promise<void>(resolveExit => child.once('exit', () => { exited = true; resolveExit() }))
+  let abort = () => {}
+  try {
+    const result = await new Promise((resolveResult, reject) => {
+      abort = () => reject(cancellationError())
+      signal.addEventListener('abort', abort, { once: true })
+      child.on('message', message => {
+        if (signal.aborted) return
+        if (message.type === 'progress') progress(message.progress)
+        if (message.type === 'done') resolveResult(message.result)
+        if (message.type === 'error') reject(new Error(message.message))
+      })
+      child.on('exit', code => reject(new Error(`图片处理进程退出（${code}），请重试。`)))
+      child.once('spawn', () => { if (signal.aborted) child.kill(); else child.postMessage(job) })
+      child.stderr?.on('data', data => console.error('[images]', data.toString()))
+      if (signal.aborted) abort()
     })
-    child.on('exit', code => { if (!settled) finish(undefined, new Error(`图片处理进程退出（${code}），请重试。`)) })
-    child.once('spawn', () => child.postMessage(job))
-    child.stderr?.on('data', data => console.error('[images]', data.toString()))
-  })
+    failed = false
+    return result
+  } finally {
+    signal.removeEventListener('abort', abort)
+    if (!exited) child.kill()
+    await exit
+    if (failed && typeof job.temporary === 'string') await rm(job.temporary, { force: true }).catch(() => {})
+  }
 }
-async function cancelTask() {
-  if (!activeTask) return
-  const task = activeTask
-  const exited = new Promise<void>(resolveExit => {
-    const timer = setTimeout(resolveExit, 3000)
-    task.child.once('exit', () => { clearTimeout(timer); resolveExit() })
-  })
-  task.reject(new Error('任务已取消。'))
-  await exited
-  if (task.temporary) await rm(task.temporary, { force: true }).catch(() => {})
+const taskQueue = new ImageTaskQueue(executeImageJob, progress => {
+  if (window && !window.isDestroyed()) window.webContents.send('task:progress', progress)
+})
+async function operation<T>(raw: unknown, work: (context: TaskContext) => Promise<T>): Promise<T> {
+  const context = raw === undefined ? { taskId: randomUUID(), projectId: '' }
+    : z.object({ taskId: z.string().min(1).max(100), projectId: z.string().max(100) }).parse(raw)
+  if (operations.has(context.taskId)) throw new Error('任务编号重复。')
+  operations.set(context.taskId, { context, canceled: false })
+  try { return await work(context) } finally { operations.delete(context.taskId) }
 }
-async function importPaths(raw: string[]): Promise<{ assets: Asset[]; skipped: number; duplicates: number }> {
+function checkCanceled(context: TaskContext) {
+  if (operations.get(context.taskId)?.canceled) throw cancellationError()
+}
+function runTask<T>(job: ImageJob, context?: TaskContext): Promise<T> {
+  if (!context) return operation(undefined, next => runTask<T>(job, next))
+  checkCanceled(context)
+  return taskQueue.run<T>(context, job)
+}
+async function cancelTask(taskId: string) {
+  const id = z.string().min(1).max(100).parse(taskId)
+  const pending = operations.get(id)
+  if (pending) pending.canceled = true
+  await taskQueue.cancel(id)
+}
+async function importPaths(raw: string[], context?: TaskContext): Promise<{ assets: Asset[]; skipped: number; duplicates: number }> {
   const paths = z.array(z.string().max(4096)).max(1000).parse(raw)
   const candidates: string[] = []
   let skipped = 0
   for (const input of paths) {
+    if (context) checkCanceled(context)
     const absolute = resolve(input)
     let info
     try { info = await stat(absolute) } catch { candidates.push(absolute); continue }
@@ -72,7 +93,8 @@ async function importPaths(raw: string[]): Promise<{ assets: Asset[]; skipped: n
   const unique = [...new Set(candidates)]
   unique.sort((a, b) => basename(a).localeCompare(basename(b), 'zh-CN', { numeric: true }) || a.localeCompare(b))
   if (unique.length > 542) throw new Error('一次最多导入 542 个文件，请选择单卷照片。')
-  const assets = unique.length ? await runTask<Asset[]>({ kind: 'import', paths: unique }) : []
+  if (context) checkCanceled(context)
+  const assets = unique.length ? await runTask<Asset[]>({ kind: 'import', paths: unique }, context) : []
   return { assets, skipped, duplicates: candidates.length - unique.length }
 }
 async function atomicJson(file: string, value: unknown) {
@@ -90,13 +112,14 @@ function registerHandlers() {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('无效调用来源。')
     return fn(...args)
   })
-  handle('photos:choose', async (kind: 'files' | 'folder') => {
+  handle('photos:choose', (kind: 'files' | 'folder', rawContext: unknown) => operation(rawContext, async context => {
     const choice = await dialog.showOpenDialog(window, { title: '导入一卷扫描照片',
       properties: kind === 'folder' ? ['openDirectory'] : ['openFile', 'multiSelections'],
       filters: [{ name: 'TIFF / JPEG', extensions: ['tif', 'tiff', 'jpg', 'jpeg'] }] })
-    return choice.canceled ? null : importPaths(choice.filePaths)
-  })
-  handle('photos:drop', (paths: string[]) => importPaths(paths))
+    checkCanceled(context)
+    return choice.canceled ? null : importPaths(choice.filePaths, context)
+  }))
+  handle('photos:drop', (paths: string[], rawContext: unknown) => operation(rawContext, context => importPaths(paths, context)))
   handle('photos:replace', async () => {
     const choice = await dialog.showOpenDialog(window, { title: '替换或重新定位照片', properties: ['openFile'], filters: [{ name: '照片', extensions: ['tif', 'tiff', 'jpg', 'jpeg'] }] })
     if (choice.canceled) return null
@@ -139,35 +162,40 @@ function registerHandlers() {
     await mkdir(stateDir(), { recursive: true })
     await atomicJson(join(stateDir(), 'template.json'), templateSchema.parse(raw))
   })
-  handle('sheet:export', async (raw: unknown, options: unknown): Promise<ExportResult> => {
+  handle('sheet:export', (raw: unknown, options: unknown, rawContext: unknown) => operation(rawContext, async (context): Promise<ExportResult> => {
     const project = projectSchema.parse(raw)
-    const opts = z.object({ widths: z.array(z.union([z.literal(6000), z.literal(8000), z.literal(10000)])).length(1), quality: z.number().int().min(70).max(100), acceptUntagged: z.boolean() }).parse(options)
+    const opts = z.object({ widths: z.array(z.union([z.literal(6000), z.literal(8000), z.literal(10000)])).length(1), quality: z.number().int().min(70).max(100), acceptUntagged: z.boolean(), filename: z.string().max(185).optional() }).parse(options)
+    const filename = exportFilename(opts.filename ?? defaultExportName(project.roll, opts.widths[0]))
     const errors = exportErrors(project)
     if (errors.length) throw new Error(errors.join('\n'))
     if (!opts.acceptUntagged && project.slots.some(a => a && !a.hasIcc)) throw new Error('请先确认无 ICC 图片按 sRGB／灰度解释。')
     const selected = await dialog.showOpenDialog(window, { title: '选择索引图输出文件夹', properties: ['openDirectory', 'createDirectory'] })
     const result: ExportResult = { files: [], canceled: selected.canceled, errors: [] }
     if (selected.canceled) return result
-    const stem = (project.roll.trim() || '未命名胶卷').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/, '') || '胶卷'
+    checkCanceled(context)
     for (const width of [...new Set(opts.widths)]) {
       const label = '高清'
-      const destination = join(selected.filePaths[0], `${stem}_索引_${label}_${width}px.jpg`)
+      const destination = join(selected.filePaths[0], filename)
+      const reservation = comparablePath(destination)
+      if (reservedExports.has(reservation)) throw new Error('另一个导出任务正在写入同名文件，请更换文件名或目录。')
+      reservedExports.add(reservation)
       try {
-        if (isSourcePath(project, destination)) throw new Error('输出文件与原图路径相同，请更换目录或卷号，原图不能被覆盖。')
+        if (isSourcePath(project, destination)) throw new Error('输出文件与原图路径相同，请更换目录或文件名，原图不能被覆盖。')
         if (await stat(destination).then(() => true).catch(() => false)) {
           const response = await dialog.showMessageBox(window, { type: 'question', message: `${basename(destination)} 已存在`, detail: '是否覆盖该成品？', buttons: ['取消', '覆盖'], defaultId: 0, cancelId: 0 })
           if (response.response !== 1) { result.canceled = true; break }
         }
         const temporary = join(dirname(destination), `.pdimpression-${randomUUID()}.jpg`)
-        await runTask({ kind: 'export', project, width, quality: opts.quality, destination, temporary })
+        checkCanceled(context)
+        await runTask({ kind: 'export', project, width, quality: opts.quality, destination, temporary }, context)
         result.files.push(destination)
       } catch (error) {
         if (isCanceled(error)) { result.canceled = true; break }
         result.errors.push(`${label}：${error instanceof Error ? error.message : String(error)}`)
-      }
+      } finally { reservedExports.delete(reservation) }
     }
     return result
-  })
+  }))
   handle('task:cancel', cancelTask)
   handle('file:reveal', (file: string) => { if (typeof file === 'string' && isAbsolute(file)) shell.showItemInFolder(file) })
   ipcMain.on('project:dirty', (event, value) => { if (event.sender === window.webContents) dirty = Boolean(value) })
@@ -184,10 +212,13 @@ app.whenReady().then(() => {
   window.once('ready-to-show', () => { if (process.env.PDIMPRESSION_TEST !== '1') window.show() })
   window.on('close', event => {
     if (canClose) return
-    if (dirty || activeTask) {
+    if (dirty || operations.size || taskQueue.size) {
       event.preventDefault()
-      void dialog.showMessageBox(window, { type: 'question', message: activeTask ? '图片任务仍在进行，确定退出吗？' : '有尚未保存的修改', detail: '选择“返回”后可在工具栏保存项目。退出会放弃未保存修改。', buttons: ['返回', '放弃并退出'], defaultId: 0, cancelId: 0 }).then(async choice => {
-        if (choice.response === 1) { await cancelTask(); canClose = true; window.close() }
+      void dialog.showMessageBox(window, { type: 'question', message: operations.size || taskQueue.size ? '图片任务仍在进行，确定退出吗？' : '有尚未保存的修改', detail: '选择“返回”后可在工具栏保存项目。退出会取消后台任务并放弃未保存修改。', buttons: ['返回', '放弃并退出'], defaultId: 0, cancelId: 0 }).then(async choice => {
+        if (choice.response === 1) {
+          for (const pending of operations.values()) pending.canceled = true
+          await taskQueue.cancelAll(); canClose = true; window.close()
+        }
       })
     }
   })

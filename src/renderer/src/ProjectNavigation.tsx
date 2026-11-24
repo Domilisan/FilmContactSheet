@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-export interface ProjectItem { id: string; title: string; count: number; saved: boolean; path: string | null }
+export interface ProjectItem { id: string; title: string; count: number; saved: boolean; path: string | null; unit: string; taskProgress?: string; taskActive?: boolean }
 interface Props {
   items: ProjectItem[]
   activeId: string
@@ -32,11 +32,11 @@ export default function ProjectNavigation({ items, activeId, disabled, mode, onS
           aria-selected={mode === 'tabs' ? item.id === activeId : undefined}
           title={`${item.title}${item.path ? `\n${item.path}` : ''}\n双击重命名`}
           onClick={() => onSelect(item.id)} onDoubleClick={() => { setDraft(item.title); setEditing(item.id) }}>
-          <span className="project-title">{item.title}</span>
+          <span className="project-label"><span className="project-title">{item.title}</span>{item.taskProgress && <small className="project-task-progress">{item.taskProgress}</small>}</span>
           {!item.saved && <span className="project-unsaved" aria-label="未保存">●</span>}
-          {mode === 'directory' && <small>{item.count} 张</small>}
+          {mode === 'directory' && <small>{item.count} {item.unit}</small>}
         </button>}
-      {mode === 'tabs' && <button className="project-close" disabled={disabled} aria-label={`关闭项目 ${item.title}`} title="关闭项目" onClick={() => onClose(item.id)}>×</button>}
+      {mode === 'tabs' && <button className="project-close" disabled={disabled || item.taskActive} aria-label={`关闭项目 ${item.title}`} title={item.taskActive ? '请先等待或取消该项目的后台任务' : '关闭项目'} onClick={() => onClose(item.id)}>×</button>}
     </div>)}
     {mode === 'tabs' && <button className="project-add" disabled={disabled} aria-label="新建项目标签" title="新建项目" onClick={onNew}>＋</button>}
   </div>

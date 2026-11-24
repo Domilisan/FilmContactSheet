@@ -13,6 +13,9 @@
     "test": "vitest run",
     "test:desktop": "tsx scripts/desktop-smoke.ts",
     "test:workspace": "tsx scripts/workspace-smoke.ts",
+    "test:multitask": "tsx scripts/multitask-smoke.ts",
+    "test:export-name": "tsx scripts/export-name-smoke.ts",
+    "test:scan-types": "tsx scripts/scan-types-smoke.ts",
     "pack:win": "npm run build && electron-builder --win --dir",
     "dist:win": "npm run build && electron-builder --win nsis",
     "dist:mac": "npm run build && electron-builder --mac dmg"

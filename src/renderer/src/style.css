@@ -683,6 +683,146 @@ fieldset {
 
 /* ===== 07 未导入照片时的欢迎页面 ===== */
 
+/* 第一步：选择扫描类型。比例没有长度单位，选中后再导入文件。 */
+.scan-welcome {
+  width: min(100%, 1080px);
+  margin: auto;
+  padding: 8px;
+}
+
+.scan-welcome .welcome-logo {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 12px;
+}
+
+.scan-picker {
+  text-align: center;
+  container-type: inline-size;
+}
+
+.scan-picker h2 {
+  font-size: 20px;
+  margin: 0 0 20px;
+}
+
+.scan-welcome .scan-picker h2 {
+  margin-bottom: 16px;
+}
+
+.scan-type-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto repeat(6, auto);
+  gap: 10px 20px;
+  text-align: left;
+}
+
+.scan-type-group {
+  display: grid;
+  grid-row: 1 / span 7;
+  grid-template-rows: subgrid;
+  min-width: 0;
+}
+
+.scan-type-group h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #46513f;
+}
+
+.scan-type-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-row: 2 / span 6;
+  grid-template-rows: subgrid;
+  gap: 10px;
+}
+
+/* 首页每组两列，按原顺序逐行排列；新建弹窗保留较窄的布局。 */
+.scan-welcome .scan-type-groups {
+  grid-template-rows: auto repeat(3, auto);
+}
+
+.scan-welcome .scan-type-group {
+  grid-row: 1 / span 4;
+}
+
+.scan-welcome .scan-type-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-row: 2 / span 3;
+}
+
+.scan-welcome .scan-card-heading > span {
+  display: none; /* 分组标题已经标明单张或整条。 */
+}
+
+@container (max-width: 620px) {
+  .scan-welcome .scan-type-groups {
+    grid-template-rows: auto repeat(6, auto);
+  }
+  .scan-welcome .scan-type-group {
+    grid-row: 1 / span 7;
+  }
+  .scan-welcome .scan-type-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-row: 2 / span 6;
+  }
+}
+
+.scan-type-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start; /* 短内容也从卡片上方开始，不在等高按钮内居中 */
+  min-width: 0;
+  padding: 12px 10px;
+  text-align: left;
+  white-space: normal;
+  background: #fcfcfa;
+  border-top: 3px solid #59634f;
+}
+
+.scan-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  margin-bottom: 8px;
+  line-height: 20px; /* 中英文标题使用同一行高，保证所有卡片等高 */
+}
+
+.scan-card-heading strong {
+  font-size: 14px;
+}
+
+.scan-card-heading > span,
+.scan-ratio,
+.scan-type-card small {
+  font-size: 12px;
+  color: #46513f;
+}
+
+.scan-ratio,
+.scan-type-card small {
+  display: block;
+  line-height: 1.6;
+}
+
+.scan-type-card small {
+  min-height: 3.2em; /* 预留两行说明，加上上方一行比例共三行；不足的行留空 */
+}
+
+.scan-picker-modal {
+  width: min(720px, calc(100vw - 64px));
+}
+
+.scan-picker-close {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
 .welcome {
   margin: auto;
   text-align: center;
@@ -956,12 +1096,12 @@ fieldset {
   display: flex;
   gap: 10px;
   align-items: center;
-  padding: 7px 18px;
+  padding: 0 18px;
   font-size: 12px;
   color: var(--muted);
   background: #f7f8f2;
   border-top: 1px solid var(--line);
-  min-height: 30px;
+  height: 36px;
   flex: none;
 }
 
@@ -970,10 +1110,15 @@ fieldset {
   color: #a45d45;
 }
 
-.notice span {
+.notice > span {
   flex: 1;
-  white-space: pre-wrap;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+.notice.tasks-expanded > span { flex: 0 1 240px; }
 
 .notice button {
   padding: 2px 6px;
@@ -1090,6 +1235,25 @@ fieldset {
 }
 
 /* ===== 12 导出弹窗 ===== */
+
+.project-label { min-width: 0; flex: 1; display: flex; flex-direction: column; text-align: left; }
+.project-task-progress { color: #9a642b; font-size: 10px; line-height: 1.4; white-space: normal; }
+.task-panel {
+  flex: none; min-width: 0;
+  background: #fffefb;
+}
+.task-panel-heading { display: flex; flex: none; align-items: center; gap: 16px; font-size: 12px; }
+.task-list { display: flex; flex: 1; min-width: 0; align-items: center; height: 100%; overflow-x: auto; overflow-y: hidden; }
+.task-list::-webkit-scrollbar { height: 3px; }
+.task-card { display: flex; align-items: center; flex: none; gap: 5px; white-space: nowrap; padding: 0 12px; border-right: 1px solid #dedfd7; }
+.task-card:last-child { border-right: 0; }
+.task-card .task-project { max-width: 150px; overflow: hidden; text-overflow: ellipsis; color: #343c30; font-weight: 600; }
+.task-card-status { max-width: 260px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+.task-card small { color: var(--muted); }
+.task-card.completed .task-card-status { color: #4a7046; }
+.task-card.failed .task-card-status { color: #b54b32; }
+.task-card.canceled .task-card-status { color: var(--muted); }
+.task-card .task-output { color: var(--accent-dark); }
 
 .modal-backdrop {
   position: fixed;
@@ -1216,6 +1380,23 @@ fieldset {
   margin-top: 15px;
   font-size: 12px;
   color: #46513f;
+}
+
+.export-filename-help {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin: 4px 0 16px;
+}
+
+.export-filename-help .help {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.export-filename-help button {
+  flex-shrink: 0;
 }
 
 .export-result button {

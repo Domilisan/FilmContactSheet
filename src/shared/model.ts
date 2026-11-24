@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { scanTypeIds, projectProfile, scanProfile, type ScanType } from './scan-types'
 
 export const templateSchema = z.object({
   pageWidth: z.number().min(230).max(600),
@@ -34,17 +35,24 @@ export const assetSchema = z.object({
 })
 export type Asset = z.infer<typeof assetSchema>
 export const projectSchema = z.object({
-  version: z.literal(1), format: z.literal('135'),
+  version: z.literal(1), format: z.enum(scanTypeIds),
+  layoutVersion: z.union([z.literal(1), z.literal(2)]).default(1),
   name: z.string().max(120).default(''),
   roll: z.string().max(120), film: z.string().max(120), date: z.string().max(32), notes: z.string().max(400),
   scanner: z.string().max(120).default(''),
-  slots: z.array(assetSchema.nullable()).length(42),
+  slots: z.array(assetSchema.nullable()).min(1).max(1000),
   overflow: z.array(assetSchema).max(500), template: templateSchema
+}).superRefine((p, ctx) => {
+  const profile = projectProfile(p), capacity = profile.columns * profile.rows
+  if (p.layoutVersion === 1 && p.format !== '135') ctx.addIssue({ code: 'custom', message: '旧版项目只支持 135。', path: ['format'] })
+  if (profile.mode === 'single' ? p.slots.length !== capacity : p.slots.length < profile.rows)
+    ctx.addIssue({ code: 'custom', message: '项目画格数量与扫描类型不匹配。', path: ['slots'] })
 })
 export type Project = z.infer<typeof projectSchema>
-export function newProject(template: Template = defaultTemplate): Project {
-  return { version: 1, format: '135', name: '', roll: '', film: '', date: '', notes: '', scanner: '',
-    slots: Array.from({ length: 42 }, () => null), overflow: [], template: structuredClone(template) }
+export function newProject(template: Template = defaultTemplate, format: ScanType = '135'): Project {
+  const profile = scanProfile(format)
+  return { version: 1, format, layoutVersion: 2, name: '', roll: '', film: '', date: '', notes: '', scanner: '',
+    slots: Array.from({ length: profile.columns * profile.rows }, () => null), overflow: [], template: structuredClone(template) }
 }
 export const photoCount = (p: Project) => p.slots.filter(Boolean).length
 export function addAssets(project: Project, incoming: Asset[]): Project {
@@ -55,12 +63,13 @@ export function addAssets(project: Project, incoming: Asset[]): Project {
     existing.add(asset.path)
     const index = next.slots.indexOf(null)
     if (index >= 0) next.slots[index] = asset
+    else if (projectProfile(next).mode === 'strip' && next.slots.length < 1000) next.slots.push(asset)
     else next.overflow.push(asset)
   }
   return next
 }
 export function insertBlank(project: Project, index: number): Project {
-  if (project.slots[41]) throw new Error('最后一格已有照片，插入空位会超出 42 格。')
+  if (project.slots.at(-1)) throw new Error(`最后一格已有照片，插入空位会超出 ${project.slots.length} 格。`)
   const next = structuredClone(project)
   next.slots.splice(index, 0, null)
   next.slots.pop()
@@ -79,20 +88,23 @@ export function moveSlot(project: Project, from: number, to: number): Project {
   return next
 }
 export interface Progress { message: string; current: number; total: number }
+export interface TaskContext { taskId: string; projectId: string }
+export interface TaskProgress extends Progress, TaskContext { kind: 'import' | 'export'; state: 'queued' | 'running' }
 export interface ImportResult { assets: Asset[]; skipped: number; duplicates: number }
-export interface ExportOptions { widths: number[]; quality: number; acceptUntagged: boolean }
+export interface ExportOptions { widths: number[]; quality: number; acceptUntagged: boolean; filename?: string }
 export interface ExportResult { files: string[]; canceled: boolean; errors: string[] }
 export interface DesktopApi {
-  chooseImport(kind: 'files' | 'folder'): Promise<ImportResult | null>
-  importDropped(files: File[]): Promise<ImportResult>
+  chooseImport(kind: 'files' | 'folder', context?: TaskContext): Promise<ImportResult | null>
+  importDropped(files: File[], context?: TaskContext): Promise<ImportResult>
   replacePhoto(): Promise<Asset | null>
   openProject(): Promise<{ project: Project; path: string } | null>
   saveProject(project: Project, saveAs: boolean, currentPath?: string | null, otherOpenPaths?: string[]): Promise<string | null>
   saveTemplate(template: Template): Promise<void>
   loadTemplate(): Promise<Template>
-  exportProject(project: Project, options: ExportOptions): Promise<ExportResult>
-  cancelTask(): Promise<void>
+  exportProject(project: Project, options: ExportOptions, context?: TaskContext): Promise<ExportResult>
+  cancelTask(taskId: string): Promise<void>
   reveal(path: string): Promise<void>
   dirty(value: boolean): void
-  onProgress(callback: (progress: Progress) => void): () => void
+  onProgress(callback: (progress: TaskProgress) => void): () => void
 }
+export interface HeaderMeasureInput { title: string; titleSize: number; order: string; details: string }

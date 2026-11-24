@@ -6,8 +6,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { inspectPhoto, exportSheet, writeSizeLimitedJpeg } from '../src/main/imaging'
 import { MAX_EXPORT_BYTES } from '../src/shared/export-settings'
-import { newProject, addAssets } from '../src/shared/model'
-import { layoutSheet } from '../src/shared/layout'
+import { newProject, addAssets, defaultTemplate } from '../src/shared/model'
+import { layoutSheet, newScanProject } from '../src/shared/layout'
+import { scanProfiles, rotationForProfile } from '../src/shared/scan-types'
 
 let dir: string
 beforeAll(async () => { dir = await mkdtemp(join(tmpdir(), 'pdimpression-test-')) })
@@ -45,6 +46,27 @@ test('reads 16-bit TIFF, exports original pixels with correct geometry and ICC',
   expect(sample[1]).toBeLessThan(100)
   expect(await readFile(source)).toEqual(original)
 })
+
+test.each(scanProfiles.filter(p => p.mode === 'strip' || p.id === 'half' || p.id === '645'))('$label exports complete TIFF content without cropping or internal separators', async profile => {
+  const w = Math.round(profile.ratioWidth * 100), h = Math.round(profile.ratioHeight * 100)
+  const source = join(dir, `${profile.id}.tif`)
+  const svg = `<svg width="${w}" height="${h}"><rect width="100%" height="100%" fill="#18bd38"/><rect width="${w / 3}" height="100%" fill="#e83020"/><rect x="${w * 2 / 3}" width="${w / 3}" height="100%" fill="#2048e8"/></svg>`
+  await sharp(Buffer.from(svg)).toColourspace('rgb16').withIccProfile('srgb').tiff().toFile(source)
+  const original = await readFile(source)
+  const asset = await inspectPhoto(source)
+  asset.rotation = rotationForProfile(asset, profile)
+  const p = addAssets(newScanProject(defaultTemplate, profile.id), [asset])
+  const destination = join(dir, `${profile.id}.jpg`)
+  await exportSheet(p, 1600, 94, destination, join(dir, `${profile.id}.tmp`), () => {})
+  const layout = layoutSheet(p), frame = layout.frames[0], scale = 1600 / layout.width
+  for (const [fraction, channel] of [[0.08, 0], [0.5, 1], [0.92, 2]]) {
+    const pixel = await sharp(destination).extract({ left: Math.round((frame.x + frame.width * fraction) * scale),
+      top: Math.round((frame.y + frame.height / 2) * scale), width: 1, height: 1 }).removeAlpha().raw().toBuffer()
+    expect(pixel[channel]).toBeGreaterThan(150)
+    expect(pixel[(channel + 1) % 3]).toBeLessThan(100)
+  }
+  expect(await readFile(source)).toEqual(original)
+}, 30000)
 
 test('under-limit JPEG keeps the requested quality and identical encoded pixels', async () => {
   const pipeline = sharp({ create: { width: 320, height: 240, channels: 3, background: '#c47e3a' } }).withIccProfile('srgb')
