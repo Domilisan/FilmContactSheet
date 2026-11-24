@@ -45,9 +45,12 @@
       "target": "nsis"
     },
     "nsis": {
+      "include": "build/installer.nsh",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "oneClick": false,
+      "perMachine": false,
+      "createDesktopShortcut": "always",
       "allowToChangeInstallationDirectory": true
     },
     "mac": {
