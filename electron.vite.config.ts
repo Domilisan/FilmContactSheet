@@ -6,11 +6,11 @@ import { fixedLogoPlugin } from './build/fixed-logo-plugin'
 export default defineConfig({
   main: {
     plugins: [fixedLogoPlugin(), externalizeDepsPlugin()],
-    build: { rollupOptions: { input: {
+    build: { target: 'node18', rollupOptions: { input: {
       index: resolve('src/main/index.ts'),
       worker: resolve('src/main/worker.ts')
     } } }
   },
-  preload: { plugins: [externalizeDepsPlugin()] },
-  renderer: { plugins: [fixedLogoPlugin(), react()] }
+  preload: { plugins: [externalizeDepsPlugin()], build: { target: 'node18' } },
+  renderer: { plugins: [fixedLogoPlugin(), react()], build: { target: 'chrome116' } }
 })

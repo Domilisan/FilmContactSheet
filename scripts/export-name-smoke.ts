@@ -1,3 +1,4 @@
+import { captureDesktop } from './capture-desktop'
 import { _electron as electron, expect } from '@playwright/test'
 import { mkdir, mkdtemp, readFile, stat } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
@@ -7,7 +8,7 @@ async function main() {
   await mkdir('.test-output', { recursive: true })
   const output = await mkdtemp(resolve('.test-output/export-name-'))
   const source = join(output, 'source.jpg')
-  await sharp({ create: { width: 369, height: 248, channels: 3, background: '#71836c' } }).withIccProfile('srgb').jpeg().toFile(source)
+  await sharp({ create: { width: 369, height: 248, channels: 3, background: '#71836c' } }).withMetadata().jpeg().toFile(source)
   const original = await readFile(source)
   const env = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined))
   env.PDIMPRESSION_TEST = '1'; delete env.ELECTRON_RUN_AS_NODE
@@ -37,7 +38,7 @@ async function main() {
     await page.getByRole('button', { name: '关闭', exact: true }).click()
     await page.getByRole('button', { name: '导出接触印象 ↗', exact: true }).click()
     await expect(name).toHaveValue('冷静_胶卷预览.jpg')
-    await page.getByRole('dialog', { name: '导出索引图' }).screenshot({ path: join(output, 'export-dialog.png') })
+    await captureDesktop(desktop, join(output, 'export-dialog.png'))
     await desktop.evaluate(({ dialog }, folder) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] }) }, output)
     await submit.click()
     await expect(page.locator('.task-card').filter({ hasText: '导出完成' })).toBeVisible({ timeout: 120000 })

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, utilityProcess } from 'electron'
 import { readFile, writeFile, readdir, stat, mkdir, rename, rm } from 'node:fs/promises'
+import { mkdirSync } from 'node:fs'
 import { join, dirname, resolve, isAbsolute, relative, extname, basename } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
@@ -13,6 +14,14 @@ const operations = new Map<string, { context: TaskContext; canceled: boolean }>(
 const reservedExports = new Set<string>()
 let dirty = false
 let canClose = false
+// Keep settings and Chromium caches separate in development and in packaged builds.
+// Honour an explicit user-data-dir used by the smoke tests.
+app.setName('PD Impression High Sierra')
+if (!app.commandLine.hasSwitch('user-data-dir')) {
+  const userData = join(app.getPath('appData'), 'PD Impression High Sierra')
+  mkdirSync(userData, { recursive: true })
+  app.setPath('userData', userData)
+}
 const imagePattern = /\.(tiff?|jpe?g)$/i
 const stateDir = () => join(app.getPath('userData'), 'state')
 const isCanceled = (error: unknown) => error instanceof Error && error.message === '任务已取消。'
@@ -51,7 +60,7 @@ async function executeImageJob(job: ImageJob, signal: AbortSignal, progress: (va
 }
 const taskQueue = new ImageTaskQueue(executeImageJob, progress => {
   if (window && !window.isDestroyed()) window.webContents.send('task:progress', progress)
-})
+}, 1)
 async function operation<T>(raw: unknown, work: (context: TaskContext) => Promise<T>): Promise<T> {
   const context = raw === undefined ? { taskId: randomUUID(), projectId: '' }
     : z.object({ taskId: z.string().min(1).max(100), projectId: z.string().max(100) }).parse(raw)
@@ -202,10 +211,10 @@ function registerHandlers() {
 }
 
 app.whenReady().then(() => {
-  if (process.platform === 'win32') app.setAppUserModelId('studio.pdimpression.desktop')
+  if (process.platform === 'win32') app.setAppUserModelId('studio.pdimpression.highsierra')
   window = new BrowserWindow({ width: 1500, height: 980, minWidth: 1120, minHeight: 740,
     icon: join(__dirname, '../../build', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
-    title: 'PD Impression', backgroundColor: '#f4f3ef', show: false,
+    title: 'PD Impression High Sierra', backgroundColor: '#f4f3ef', show: false,
     webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } })
   window.setMenuBarVisibility(false)
   registerHandlers()

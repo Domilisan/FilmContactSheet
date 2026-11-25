@@ -6,9 +6,10 @@ import { type Asset, type Project, type Progress } from '../shared/model'
 import { exportErrors, layoutSheet, sheetSvg, rollHeader } from '../shared/layout'
 import { measureHeaderOrderY } from './header-spacing'
 import { MAX_EXPORT_BYTES } from '../shared/export-settings'
+import { renderPhotoTile } from './image-compat'
 
-sharp.cache({ memory: 96, files: 16, items: 60 })
-sharp.concurrency(2)
+sharp.cache({ memory: 48, files: 8, items: 30 })
+sharp.concurrency(1)
 const inputOptions = { limitInputPixels: 150_000_000, failOn: 'error' as const }
 
 // 每次从同一个原始合成流程编码，避免对 JPEG 反复压缩。
@@ -55,9 +56,9 @@ export async function inspectPhoto(filePath: string, id = randomUUID()): Promise
     if (!asset.hasIcc && !['srgb', 'rgb', 'b-w', 'grey16', 'rgb16'].includes(asset.space))
       throw new Error(`无 ICC 的 ${asset.space} 图片无法安全解释颜色，请先嵌入正确配置。`)
     if (!asset.hasIcc) asset.warning = '未嵌入 ICC；预览按 sRGB／灰度解释，导出前需确认。'
-    const preview = await sharp(filePath, inputOptions).autoOrient().pipelineColourspace('rgb16')
+    const preview = await sharp(filePath, inputOptions).rotate().pipelineColourspace('rgb16')
       .resize({ width: 720, height: 720, fit: 'inside', withoutEnlargement: true })
-      .withIccProfile('srgb').jpeg({ quality: 84 }).toBuffer()
+      .withMetadata({ orientation: 1 }).jpeg({ quality: 84 }).toBuffer()
     asset.preview = `data:image/jpeg;base64,${preview.toString('base64')}`
     asset.status = 'ready'
   } catch (error) { asset.error = error instanceof Error ? error.message : String(error) }
@@ -82,9 +83,7 @@ export async function exportSheet(project: Project, width: number, quality: numb
       const left = Math.round(f.x * scale), top = Math.round(f.y * scale)
       const w = Math.round((f.x + f.width) * scale) - left
       const h = Math.round((f.y + f.height) * scale) - top
-      const input = await sharp(asset.path, inputOptions).autoOrient().rotate(asset.rotation)
-        .pipelineColourspace('rgb16').resize(w, h, { fit: 'contain', background: '#171715' })
-        .withIccProfile('srgb').png().toBuffer()
+      const input = await renderPhotoTile(sharp(asset.path, inputOptions), w, h, asset.rotation)
       overlays.push({ input, left, top })
     }
     onProgress({ message: '合成胶片与品牌信息', current: frames.length, total: frames.length + 1 })
@@ -94,7 +93,7 @@ export async function exportSheet(project: Project, width: number, quality: numb
     const exportSvg = sheetSvg(project, { orderY }).replace(/width="[^"]+mm" height="[^"]+mm"/, `width="${width}" height="${height}"`)
     const image = sharp(Buffer.from(exportSvg), { limitInputPixels: 150_000_000 })
       .resize(width, height, { fit: 'fill' }).composite(overlays)
-      .withIccProfile('srgb').withMetadata({ density })
+      .withMetadata({ density })
     await writeSizeLimitedJpeg(image, temporary, quality, MAX_EXPORT_BYTES, () => {
       onProgress({ message: '文件超过 25MB，正在优化 JPEG 质量…', current: frames.length, total: frames.length + 1 })
     })

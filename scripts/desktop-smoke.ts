@@ -1,3 +1,4 @@
+import { captureDesktop } from './capture-desktop'
 import { _electron as electron, expect } from '@playwright/test'
 import { mkdir, readFile, writeFile, stat } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
@@ -15,7 +16,7 @@ async function main() {
     const large = n === 1
     const w = large ? 4096 : (n === 3 ? 240 : 360), h = large ? 2560 : (n === 3 ? 360 : 240)
     const svg = `<svg width="${w}" height="${h}"><rect width="100%" height="100%" fill="${colors[(n - 1) % colors.length]}"/><circle cx="${w * .7}" cy="${h * .3}" r="${w * .12}" fill="#e4d3ab"/><path d="M0 ${h} L${w * .4} ${h * .4} L${w} ${h}Z" fill="#394c40"/><text x="${w * .1}" y="${h * .7}" font-family="Arial" font-size="${w * .12}" fill="white">${n}</text></svg>`
-    await sharp(Buffer.from(svg)).toColourspace('rgb16').withIccProfile('srgb').tiff({ compression: large ? 'none' : 'lzw' }).toFile(file)
+    await sharp(Buffer.from(svg)).toColourspace('rgb16').withMetadata().tiff({ compression: large ? 'none' : 'lzw' }).toFile(file)
     files.push(file)
   }
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined))
@@ -30,7 +31,7 @@ async function main() {
     await expect(page.locator('.welcome-logo')).toBeVisible()
     await expect(page.locator('.welcome-logo')).toHaveCSS('mix-blend-mode', 'multiply')
     await expect(page.locator('.library-footer, .preview-footer')).toHaveCount(0)
-    await page.screenshot({ path: join(output, '01-empty.png') })
+    await captureDesktop(desktop, join(output, '01-empty.png'))
     await page.getByRole('button', { name: '选择 135', exact: true }).click()
     await desktop.evaluate(({ dialog }, paths) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: paths }) }, files.slice(0, 36))
     await page.getByRole('button', { name: '导入照片', exact: true }).click()
@@ -89,7 +90,7 @@ async function main() {
     expect(scrollState.vertical).toBeGreaterThan(0)
     expect(scrollState.width).toBe('18px')
     expect(scrollState.height).toBe('18px')
-    await page.screenshot({ path: join(output, '04-zoom-scrollbars.png') })
+    await captureDesktop(desktop, join(output, '04-zoom-scrollbars.png'))
     await page.locator('.zoom-tools').getByRole('button', { name: '适合窗口', exact: true }).click()
     await expect(page.locator('.paper-caption')).toContainText('已隐藏末尾 1 条')
     await page.getByLabel('订单编号 / 拍摄者').fill('TEST-001')
@@ -123,7 +124,7 @@ async function main() {
     await expect(page.locator('.paper-caption')).toContainText('完整显示 7 条')
     await page.getByLabel('隐藏末尾整条空白胶片', { exact: true }).check()
     await page.locator('.photo-row').nth(3).click()
-    await page.screenshot({ path: join(output, '02-workspace.png') })
+    await captureDesktop(desktop, join(output, '02-workspace.png'))
     const projectFile = join(output, 'TEST-001.pdimpression')
     await desktop.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }) }, projectFile)
     await page.getByRole('button', { name: '保存', exact: true }).click()
@@ -147,7 +148,7 @@ async function main() {
     expect(metadata.width).toBe(6000)
     expect(metadata.height).toBe(Math.round(6000 * Math.SQRT2))
     expect(metadata.icc?.length).toBeGreaterThan(0)
-    await page.screenshot({ path: join(output, '03-export.png') })
+    await captureDesktop(desktop, join(output, '03-export.png'))
     await desktop.evaluate(({ dialog }, paths) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: paths }) }, files.slice(36))
     await page.getByRole('button', { name: '导入照片', exact: true }).click()
     await expect(page.locator('.photo-row')).toHaveCount(38, { timeout: 60000 })
@@ -170,7 +171,7 @@ async function main() {
     console.log('Desktop smoke passed: TIFF import, physical layout, save/open, original-source export, 36/38-row rules.')
   } catch (error) {
     const page = desktop.windows()[0]
-    if (page) await page.screenshot({ path: join(output, 'failure.png') }).catch(() => {})
+    if (page) await captureDesktop(desktop, join(output, 'failure.png')).catch(() => {})
     throw error
   } finally {
     await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {})

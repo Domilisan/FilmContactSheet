@@ -1,4 +1,4 @@
-name: Build macOS Intel test installer
+name: Build High Sierra Intel test installer
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: mac-intel-${{ github.ref }}
+  group: high-sierra-intel-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -33,22 +33,26 @@ jobs:
         run: npm test
       - name: Build Intel DMG (never publish)
         run: npm run dist:mac:intel
-      - name: Check signatures, architecture and Ventura deployment targets
-        run: npm run verify:mac:intel
+      - name: Check signatures, architecture and High Sierra deployment targets
+        run: |
+          npm run verify:mac:native
+          npm run verify:mac:intel
+      - name: Check Electron 26 runtime and native file drops
+        run: npm run test:high-sierra
       - name: Test packaged app import, save, reopen and export
         run: npm run test:packaged
       - name: Verify disk image and prepare download
         run: |
-          hdiutil verify release/*-macOS-Intel.dmg
+          hdiutil verify release/*-High-Sierra-Intel.dmg
           cp docs/MAC-INTEL-TEST.md release/MAC-INTEL-TEST.md
           cd release
-          shasum -a 256 *-macOS-Intel.dmg > SHA256SUMS.txt
+          shasum -a 256 *-High-Sierra-Intel.dmg > SHA256SUMS.txt
       - name: Upload installer as an Actions artifact only
         uses: actions/upload-artifact@v7
         with:
-          name: PD-Impression-macOS-Intel-test-${{ github.run_number }}
+          name: PD-Impression-High-Sierra-Intel-test-${{ github.run_number }}
           path: |
-            release/*-macOS-Intel.dmg
+            release/*-High-Sierra-Intel.dmg
             release/SHA256SUMS.txt
             release/MAC-INTEL-TEST.md
           if-no-files-found: error
@@ -61,6 +65,8 @@ jobs:
           name: macOS-Intel-diagnostics-${{ github.run_number }}
           path: |
             .test-output/mac-intel-verification.json
+            .test-output/high-sierra-native.json
+            .test-output/high-sierra-*/result.json
             .test-output/packaged-*/result.json
             .test-output/packaged-*/*.png
           include-hidden-files: true

@@ -1,17 +1,30 @@
 import { expect, test, vi } from 'vitest'
 import { ImageTaskQueue, cancellationError } from '../src/main/task-queue'
 
-function fixture() {
+function fixture(maxWorkers = 2) {
   const running = new Map<string, { resolve(value: unknown): void; reject(error: unknown): void; signal: AbortSignal }>()
   const started: string[] = [], progress = vi.fn()
   const queue = new ImageTaskQueue((job, signal) => new Promise((resolve, reject) => {
     const id = String(job.id); started.push(id); running.set(id, { resolve, reject, signal })
     if (signal.aborted) reject(cancellationError())
     signal.addEventListener('abort', () => reject(cancellationError()), { once: true })
-  }), progress)
+  }), progress, maxWorkers)
   const submit = (id: string, kind: 'import' | 'export' = 'import') => queue.run({ taskId: id, projectId: `project-${id}` }, { id, kind })
   return { queue, submit, running, started, progress }
 }
+
+test('High Sierra runs one image job at a time and queued cancellation releases no worker', async () => {
+  const f = fixture(1)
+  const a = f.submit('a', 'export'), b = f.submit('b'), c = f.submit('c')
+  await vi.waitFor(() => expect(f.started).toEqual(['a']))
+  const canceled = expect(b).rejects.toThrow('任务已取消')
+  await f.queue.cancel('b'); await canceled
+  expect(f.started).toEqual(['a'])
+  f.running.get('a')!.resolve('A'); await a
+  await vi.waitFor(() => expect(f.started).toEqual(['a', 'c']))
+  f.running.get('c')!.resolve('C'); await c
+  expect(f.queue.size).toBe(0)
+})
 
 test('two workers, one export, and progress stays bound to the originating project', async () => {
   const f = fixture()

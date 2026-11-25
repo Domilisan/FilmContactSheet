@@ -1,6 +1,6 @@
 {
-  "name": "pdimpression",
-  "version": "0.1.0",
+  "name": "pdimpression-high-sierra",
+  "version": "0.1.0-hs.1",
   "private": true,
   "description": "Offline film contact sheets for photographic labs",
   "author": "PD Impression",
@@ -20,15 +20,17 @@
     "test:export-name": "tsx scripts/export-name-smoke.ts",
     "test:scan-types": "tsx scripts/scan-types-smoke.ts",
     "test:packaged": "tsx scripts/packaged-smoke.mts",
-    "pack:win": "npm run build && electron-builder --win --dir",
-    "dist:win": "npm run build && electron-builder --win nsis",
+    "test:high-sierra": "tsx scripts/high-sierra-smoke.ts",
+    "pack:win": "npm run build && electron-builder --win --dir --publish never",
+    "dist:win": "npm run build && electron-builder --win nsis --publish never",
     "dist:mac": "npm run dist:mac:intel",
     "dist:mac:intel": "npm run build && electron-builder --mac dmg --x64 --publish never",
-    "verify:mac:intel": "node scripts/verify-mac-intel.mjs"
+    "verify:mac:intel": "node scripts/verify-mac-intel.mjs",
+    "verify:mac:native": "node scripts/verify-high-sierra-native.mjs"
   },
   "build": {
-    "appId": "studio.pdimpression.desktop",
-    "productName": "PD Impression",
+    "appId": "studio.pdimpression.highsierra",
+    "productName": "PD Impression High Sierra",
     "directories": {
       "output": "release"
     },
@@ -39,8 +41,7 @@
       "package.json"
     ],
     "asarUnpack": [
-      "node_modules/sharp/**/*",
-      "node_modules/@img/**/*"
+      "node_modules/sharp/**/*"
     ],
     "npmRebuild": false,
     "win": {
@@ -59,8 +60,8 @@
     "mac": {
       "target": [{ "target": "dmg", "arch": ["x64"] }],
       "icon": "build/icon.icns",
-      "minimumSystemVersion": "13.7.1",
-      "artifactName": "${productName}-${version}-macOS-Intel.${ext}",
+      "minimumSystemVersion": "10.13.6",
+      "artifactName": "PD-Impression-${version}-High-Sierra-Intel.${ext}",
       "identity": "-",
       "hardenedRuntime": false,
       "notarize": false,
@@ -70,7 +71,7 @@
   "dependencies": {
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "sharp": "0.35.5",
+    "sharp": "0.32.6",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -79,7 +80,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.3.0",
-    "electron": "45.3.2",
+    "electron": "26.6.10",
     "electron-builder": "26.18.0",
     "electron-vite": "6.0.0",
     "tsx": "4.23.15",

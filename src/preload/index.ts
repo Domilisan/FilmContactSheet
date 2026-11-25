@@ -1,9 +1,10 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import type { DesktopApi, TaskProgress } from '../shared/model'
 
 const api: DesktopApi & { newProject(): Promise<void> } = {
   chooseImport: (kind, context) => ipcRenderer.invoke('photos:choose', kind, context),
-  importDropped: (files, context) => ipcRenderer.invoke('photos:drop', files.map(file => webUtils.getPathForFile(file)).filter(Boolean), context),
+  // Electron 26 exposes the native path on File; webUtils arrived in later releases.
+  importDropped: (files, context) => ipcRenderer.invoke('photos:drop', files.map(file => (file as File & { path: string }).path).filter(Boolean), context),
   replacePhoto: () => ipcRenderer.invoke('photos:replace'),
   openProject: () => ipcRenderer.invoke('project:open'),
   saveProject: (project, saveAs, currentPath = null, otherOpenPaths = []) => ipcRenderer.invoke('project:save', project, saveAs, currentPath, otherOpenPaths),

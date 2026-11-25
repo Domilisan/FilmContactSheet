@@ -1,3 +1,4 @@
+import { captureDesktop } from './capture-desktop'
 import { _electron as electron, expect } from '@playwright/test'
 import { mkdir, readFile } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
@@ -7,7 +8,7 @@ async function main() {
   const output = resolve('.test-output/workspace')
   await mkdir(output, { recursive: true })
   const photo = join(output, 'sample.jpg')
-  await sharp({ create: { width: 360, height: 240, channels: 3, background: '#789782' } }).withIccProfile('srgb').jpeg().toFile(photo)
+  await sharp({ create: { width: 360, height: 240, channels: 3, background: '#789782' } }).withMetadata().jpeg().toFile(photo)
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined))
   env.PDIMPRESSION_TEST = '1'
   delete env.ELECTRON_RUN_AS_NODE
@@ -26,7 +27,7 @@ async function main() {
       await expect(page.locator('.status')).toContainText('未打开项目')
     }
     await expectEmpty()
-    await page.screenshot({ path: join(output, 'empty-start.png') })
+    await captureDesktop(desktop, join(output, 'empty-start.png'))
     // Importing without a type opens the selector; canceling creates no project.
     await page.getByRole('button', { name: '导入照片', exact: true }).click()
     await page.getByRole('dialog', { name: '新建扫描项目' }).getByRole('button', { name: '取消' }).click()
@@ -108,7 +109,7 @@ async function main() {
       return called
     })
     expect(warned).toBe(true)
-    await page.screenshot({ path: join(output, 'multi-project.png') })
+    await captureDesktop(desktop, join(output, 'multi-project.png'))
     // Reopening an already open file focuses its unsaved session without replacing it.
     await desktop.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }) }, fileA)
     await page.getByRole('button', { name: '打开项目', exact: true }).click()
@@ -134,7 +135,7 @@ async function main() {
     expect(JSON.parse(await readFile(fileA, 'utf8')).roll).toBe('A-001')
     await page.getByLabel('关闭项目 卷 B', { exact: true }).click()
     await expectEmpty()
-    await page.screenshot({ path: join(output, 'empty-after-close.png') })
+    await captureDesktop(desktop, join(output, 'empty-after-close.png'))
     // Open from the empty state, then save and close the final dirty project.
     await page.getByRole('button', { name: '打开项目', exact: true }).click()
     await expect(tabs.getByRole('tab')).toHaveCount(1)
@@ -146,7 +147,7 @@ async function main() {
     expect(errors).toEqual([])
     console.log('Workspace smoke passed: tabs, rename, independent state/history/save paths, close protection and disk reopen.')
   } catch (error) {
-    await desktop.windows()[0]?.screenshot({ path: join(output, 'failure.png') }).catch(() => {})
+    await captureDesktop(desktop, join(output, 'failure.png')).catch(() => {})
     throw error
   } finally {
     await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {})

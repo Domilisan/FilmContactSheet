@@ -17,7 +17,7 @@ afterAll(async () => { await rm(dir, { recursive: true, force: true }) })
 test('reads 16-bit TIFF, exports original pixels with correct geometry and ICC', async () => {
   const source = join(dir, 'scan.tif')
   await sharp({ create: { width: 360, height: 240, channels: 3, background: '#e83020' } })
-    .toColourspace('rgb16').withIccProfile('srgb').tiff({ compression: 'lzw' }).toFile(source)
+    .toColourspace('rgb16').withMetadata().tiff({ compression: 'lzw' }).toFile(source)
   const original = await readFile(source)
   const asset = await inspectPhoto(source)
   expect(asset.status).toBe('ready')
@@ -51,7 +51,7 @@ test.each(scanProfiles.filter(p => p.mode === 'strip' || p.id === 'half' || p.id
   const w = Math.round(profile.ratioWidth * 100), h = Math.round(profile.ratioHeight * 100)
   const source = join(dir, `${profile.id}.tif`)
   const svg = `<svg width="${w}" height="${h}"><rect width="100%" height="100%" fill="#18bd38"/><rect width="${w / 3}" height="100%" fill="#e83020"/><rect x="${w * 2 / 3}" width="${w / 3}" height="100%" fill="#2048e8"/></svg>`
-  await sharp(Buffer.from(svg)).toColourspace('rgb16').withIccProfile('srgb').tiff().toFile(source)
+  await sharp(Buffer.from(svg)).toColourspace('rgb16').withMetadata().tiff().toFile(source)
   const original = await readFile(source)
   const asset = await inspectPhoto(source)
   asset.rotation = rotationForProfile(asset, profile)
@@ -69,7 +69,7 @@ test.each(scanProfiles.filter(p => p.mode === 'strip' || p.id === 'half' || p.id
 }, 30000)
 
 test('under-limit JPEG keeps the requested quality and identical encoded pixels', async () => {
-  const pipeline = sharp({ create: { width: 320, height: 240, channels: 3, background: '#c47e3a' } }).withIccProfile('srgb')
+  const pipeline = sharp({ create: { width: 320, height: 240, channels: 3, background: '#c47e3a' } }).withMetadata()
   const expected = await pipeline.clone().jpeg({ quality: 94, chromaSubsampling: '4:4:4' }).toBuffer()
   const output = join(dir, 'under-limit.jpg')
   let adjusted = false
@@ -79,7 +79,7 @@ test('under-limit JPEG keeps the requested quality and identical encoded pixels'
 })
 
 test('oversized JPEG adjusts quality while preserving dimensions and ICC', async () => {
-  const pipeline = sharp(randomBytes(512 * 512 * 3), { raw: { width: 512, height: 512, channels: 3 } }).withIccProfile('srgb')
+  const pipeline = sharp(randomBytes(512 * 512 * 3), { raw: { width: 512, height: 512, channels: 3 } }).withMetadata()
   const high = await pipeline.clone().jpeg({ quality: 94, chromaSubsampling: '4:4:4' }).toBuffer()
   const low = await pipeline.clone().jpeg({ quality: 1, chromaSubsampling: '4:4:4' }).toBuffer()
   const budget = Math.floor((high.length + low.length) / 2)

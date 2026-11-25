@@ -1,3 +1,4 @@
+import { captureDesktop } from './capture-desktop'
 import { _electron as electron, expect } from '@playwright/test'
 import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { resolve, join, basename } from 'node:path'
@@ -7,7 +8,7 @@ async function main() {
   await mkdir('.test-output', { recursive: true })
   const output = await mkdtemp(resolve('.test-output/multitask-'))
   const files = Object.fromEntries(['A', 'B', 'C'].map(name => [name, join(output, `${name}.tif`)]))
-  for (const file of Object.values(files)) await sharp({ create: { width: 369, height: 248, channels: 3, background: '#768f78' } }).withIccProfile('srgb').tiff().toFile(file)
+  for (const file of Object.values(files)) await sharp({ create: { width: 369, height: 248, channels: 3, background: '#768f78' } }).withMetadata().tiff().toFile(file)
   const env = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined))
   env.PDIMPRESSION_TEST = '1'; delete env.ELECTRON_RUN_AS_NODE
   const desktop = await electron.launch({ args: [resolve('out/main/index.js'), `--user-data-dir=${join(output, 'user-data')}`], env })
@@ -78,25 +79,25 @@ async function main() {
     await expect(page.getByLabel('新建项目标签')).toBeEnabled()
     await expect(page.getByLabel('关闭项目 卷 A')).toBeDisabled()
     await create('B', '6×6')
-    const b = await startImport('B'); await expect(b).toHaveAttribute('data-state', 'running')
+    const b = await startImport('B'); await expect(b).toHaveAttribute('data-state', 'queued')
     await create('C', 'XPan')
     const c = await startImport('C'); await expect(c).toHaveAttribute('data-state', 'queued')
     await expect(page.locator('.busy')).toHaveCount(0)
     await expect(page.locator('.project-directory-list .project-task-progress')).toHaveCount(3)
-    await page.screenshot({ path: join(output, '01-concurrent-imports.png') })
+    await captureDesktop(desktop, join(output, '01-concurrent-imports.png'))
 
-    // B finishes while C is selected: C must stay empty, and A must remain in flight.
+    // One worker on High Sierra: cancel A to release B; C remains queued.
+    await a.getByRole('button', { name: '取消任务' }).click()
+    await expect(a).toHaveAttribute('data-state', 'canceled')
+    await desktop.evaluate(() => { (globalThis as any).heldJobs = (globalThis as any).heldJobs.filter((item: any) => !item.job.paths?.some((p: string) => p.endsWith('A.tif'))) })
+    await expect(b).toHaveAttribute('data-state', 'running')
+    // B finishes while C is selected: C must stay empty.
     await release('B', 'import'); await expect(b).toHaveAttribute('data-state', 'completed')
     await expect(c).toHaveAttribute('data-state', 'running')
     await expect(page.locator('.photo-row')).toHaveCount(0)
-    await expect(a).toHaveAttribute('data-state', 'running')
     await select('B'); await expect(page.locator('.photo-row')).toHaveCount(1)
     await expect(page.locator('.photo-row')).toContainText('B.tif')
     await page.getByLabel('备注', { exact: true }).fill('导出前备注')
-    await a.getByRole('button', { name: '取消任务' }).click()
-    await expect(a).toHaveAttribute('data-state', 'canceled')
-    // Discard the gate for the canceled worker; it must never be released.
-    await desktop.evaluate(() => { (globalThis as any).heldJobs = (globalThis as any).heldJobs.filter((item: any) => !item.job.paths?.some((p: string) => p.endsWith('A.tif'))) })
     await release('C', 'import'); await expect(c).toHaveAttribute('data-state', 'completed')
     await expect(page.locator('.photo-row')).toContainText('B.tif')
     await select('A'); await expect(page.locator('.photo-row')).toHaveCount(0)
@@ -109,14 +110,14 @@ async function main() {
     await select('C')
     const exportC = await startExport('C'); await expect(exportC).toHaveAttribute('data-state', 'queued')
     await select('A')
-    const a2 = await startImport('A'); await expect(a2).toHaveAttribute('data-state', 'running')
-    await page.screenshot({ path: join(output, '02-export-and-import.png') })
+    const a2 = await startImport('A'); await expect(a2).toHaveAttribute('data-state', 'queued')
+    await captureDesktop(desktop, join(output, '02-export-and-import.png'))
     await exportC.getByRole('button', { name: '取消任务' }).click()
     await expect(exportC).toHaveAttribute('data-state', 'canceled')
     await expect(exportB).toHaveAttribute('data-state', 'running')
-    await release('A', 'import'); await expect(a2).toHaveAttribute('data-state', 'completed')
-    await expect(page.locator('.photo-row')).toContainText('A.tif')
     await release('B', 'export'); await expect(exportB).toHaveAttribute('data-state', 'completed', { timeout: 120000 })
+    await expect(a2).toHaveAttribute('data-state', 'running')
+    await release('A', 'import'); await expect(a2).toHaveAttribute('data-state', 'completed')
     expect((await stat(join(output, 'export-B.jpg'))).size).toBeGreaterThan(0)
     expect(await stat(join(output, 'export-C.jpg')).then(() => true).catch(() => false)).toBe(false)
     await expect(page.locator('.photo-row')).toContainText('A.tif')
@@ -151,10 +152,10 @@ async function main() {
     await select('B'); await expect(page.locator('.photo-row')).toContainText('B.tif')
     expect((await readdir(output)).filter(name => name.startsWith('.pdimpression-'))).toEqual([])
     expect(errors).toEqual([])
-    await page.screenshot({ path: join(output, '03-completed.png') })
-    console.log(`Multitask smoke passed: concurrent imports, bounded queue, project isolation, queued/running cancellation, temporary cleanup, worker failure, snapshot export and edits retained. ${output}`)
+    await captureDesktop(desktop, join(output, '03-completed.png'))
+    console.log(`High Sierra multitask smoke passed: serial image jobs, project isolation, queued/running cancellation, temporary cleanup, worker failure, snapshot export and edits retained. ${output}`)
   } catch (error) {
-    await desktop.windows()[0]?.screenshot({ path: join(output, 'failure.png') }).catch(() => {})
+    await captureDesktop(desktop, join(output, 'failure.png')).catch(() => {})
     throw error
   } finally {
     await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {})

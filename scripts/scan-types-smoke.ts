@@ -1,3 +1,4 @@
+import { captureDesktop } from './capture-desktop'
 import { _electron as electron, expect } from '@playwright/test'
 import { mkdir, readFile, stat } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
@@ -31,12 +32,12 @@ async function main() {
     expect(Math.max(...grouping.offsets) - Math.min(...grouping.offsets)).toBeLessThan(0.1)
     expect(grouping.offsets.every(offset => offset >= 14 && offset <= 15.1)).toBe(true)
     await expect(page.locator('.project-tabs')).toHaveCount(0)
-    await page.screenshot({ path: join(output, '01-selector.png') })
+    await captureDesktop(desktop, join(output, '01-selector.png'))
     for (const [index, profile] of scanProfiles.entries()) {
       const w = Math.round(profile.ratioWidth * 100), h = Math.round(profile.ratioHeight * 100)
       const source = join(output, `${profile.id}.tif`)
       const svg = `<svg width="${w}" height="${h}"><rect width="100%" height="100%" fill="#698e79"/><circle cx="${w * .25}" cy="${h * .5}" r="${Math.min(w, h) * .22}" fill="#f1d594"/><path d="M${w * .4} ${h} L${w * .75} ${h * .15} L${w} ${h}Z" fill="#394c40"/></svg>`
-      await sharp(Buffer.from(svg)).toColourspace('rgb16').withIccProfile('srgb').tiff().toFile(source)
+      await sharp(Buffer.from(svg)).toColourspace('rgb16').withMetadata().tiff().toFile(source)
       if (index) await page.getByLabel('新建项目标签').click()
       const picker = index ? page.getByRole('dialog', { name: '新建扫描项目' }) : page.locator('.scan-welcome')
       await picker.getByRole('button', { name: `选择 ${profile.label}`, exact: true }).click()
@@ -54,7 +55,7 @@ async function main() {
       expect(hasHoles > 0).toBe(profile.family !== '120')
       await expect(page.locator('.status')).toContainText(`1 ${profile.mode === 'strip' ? '条' : '张'}`)
       if (['half', '67', '135-strip', '645-strip'].includes(profile.id))
-        await page.screenshot({ path: join(output, `${profile.id}.png`) })
+        await captureDesktop(desktop, join(output, `${profile.id}.png`))
     }
     await expect(page.locator('.project-tabs [role="tab"]')).toHaveCount(11)
     // Switching must restore the chosen format, not use the latest global selection.
@@ -87,7 +88,7 @@ async function main() {
     expect(errors).toEqual([])
     console.log('Scan types smoke passed: 11 selections and TIFF imports, format-specific frames, tab switching, save/reopen, whole-strip export.')
   } catch (error) {
-    await desktop.windows()[0]?.screenshot({ path: join(output, 'failure.png') }).catch(() => {})
+    await captureDesktop(desktop, join(output, 'failure.png')).catch(() => {})
     throw error
   } finally {
     await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {})

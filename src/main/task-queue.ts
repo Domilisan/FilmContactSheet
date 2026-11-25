@@ -8,10 +8,12 @@ interface Entry {
 }
 export const cancellationError = () => new Error('任务已取消。')
 
-/** Two image workers at most; only one memory-heavy export at a time. */
+/** Configurable capacity; High Sierra uses one worker to bound memory use. */
 export class ImageTaskQueue {
   private entries = new Map<string, Entry>()
-  constructor(private execute: Execute, private notify: (progress: TaskProgress) => void) {}
+  constructor(private execute: Execute, private notify: (progress: TaskProgress) => void, private maxWorkers = 2) {
+    if (!Number.isInteger(maxWorkers) || maxWorkers < 1) throw new Error('Invalid image worker limit')
+  }
   get size() { return this.entries.size }
 
   run<T>(context: TaskContext, job: ImageJob): Promise<T> {
@@ -49,7 +51,7 @@ export class ImageTaskQueue {
   private pump() {
     for (;;) {
       const running = [...this.entries.values()].filter(e => e.running)
-      if (running.length >= 2) return
+      if (running.length >= this.maxWorkers) return
       const next = [...this.entries.values()].find(e => !e.running
         && (e.job.kind !== 'export' || !running.some(r => r.job.kind === 'export')))
       if (!next) return

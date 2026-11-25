@@ -6,7 +6,7 @@
   SetShellVarContext current
   StrCpy $hasPerMachineInstallation "0"
   StrCpy $hasPerUserInstallation "1"
-  StrCpy $INSTDIR "$LOCALAPPDATA\Programs\PD Impression"
+  StrCpy $INSTDIR "$LOCALAPPDATA\Programs\PD Impression High Sierra"
   ; Preserve an explicitly supplied /D= destination for managed installations.
   !insertmacro GetDParameter $R0
   ${If} $R0 != ""

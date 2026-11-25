@@ -1,10 +1,12 @@
-# PD Impression
+# PD Impression — High Sierra 兼容测试版
+
+本目录属于 `compat/high-sierra`，目标为 2011 年 Intel iMac、macOS 10.13.6、8GB 内存。原版保留在 `main`。兼容版应用名为 **PD Impression High Sierra**，设置与缓存独立。当前版本为 **0.1.0-hs.1**；Windows 上验证成功不等于已在 High Sierra 上运行。构建与实机验收见 [Mac 测试说明](docs/MAC-INTEL-TEST.md)。
 
 离线胶卷索引图桌面应用。以 React 和 TypeScript 制作界面，通过 Electron 独立处理进程调用 Sharp／libvips 读取 TIFF、生成预览和导出 JPEG。
 
 GitHub 项目名：FilmContactSheet — auto-generating contact sheets from scanned film rolls.
 
-当前为 **0.1.0 开发预览版**，支持 11 种扫描类型及多项目处理。完整产品需求见同目录的《胶卷索引应用第一版需求文档.md》，现有界面参考图保存在 `assets/main-interface-v1.png`。开发预览版不等于完整 V1.0 已交付。
+当前为 **0.1.0-hs.1 兼容开发预览版**，支持 11 种扫描类型及多项目处理。完整产品需求见同目录的《胶卷索引应用第一版需求文档.md》，现有界面参考图保存在 `assets/main-interface-v1.png`。开发预览版不等于完整 V1.0 已交付。
 
 ## 启动
 
@@ -31,7 +33,7 @@ macOS 使用 `npm` 而不是 `npm.cmd`，在 Mac 上重新安装依赖，不复�
 
 - TIFF 和 JPEG 文件／文件夹导入、文件名自然排序、原图尺寸及 ICC 状态读取。
 - 多项目工作区：左侧项目目录、预览上方的项目标签；单击切换，双击名称重命名，点叉关闭。每卷独立保留照片、模板、缩放、选中项、撤销记录及保存路径。
-- 导入、导出在后台处理：每个任务绑定所属项目，导入一卷时可切换或新建另一卷继续导入。项目目录和标签显示各自进度，任务入口位于底部导入提示栏，展开后任务在原栏中间单行横向排列，超出时横向滚动，展开和收起高度一致、不遮挡操作区；导入完成及导入／导出取消提示在 2 秒后自动移除；导出完成保留文件夹入口，所有任务结束 4 秒后自动收起。支持逐个取消、查看完成／失败和打开导出文件夹。最多两个图片任务并行，其中高清导出同时最多一个，其余排队。
+- 导入、导出在后台处理：每个任务绑定所属项目，导入一卷时可切换或新建另一卷继续导入。项目目录和标签显示各自进度，任务入口位于底部导入提示栏，展开后任务在原栏中间单行横向排列，超出时横向滚动，展开和收起高度一致、不遮挡操作区；导入完成及导入／导出取消提示在 2 秒后自动移除；导出完成保留文件夹入口，所有任务结束 4 秒后自动收起。支持逐个取消、查看完成／失败和打开导出文件夹。图片任务最多一个运行，其余排队；界面仍可切换和编辑其他项目。
 - 导出使用提交时的项目快照；开始后关闭导出设置窗口，允许继续编辑或处理其他项目。正在导入的项目暂时锁定编辑，其他项目可用；有未结束任务的项目需先完成或取消任务再关闭。任务队列暂不跨应用重启恢复。
 - 默认名称使用当前打开项目中最小的可用编号：关闭或重命名“未命名项目 1”后，下次可再次使用 1；只要 1 仍被占用才使用 2。编号不记录到缓存，也不扫描磁盘文件；保存时仍由用户选择文件名。
 - 项目名称随项目文件保存；关闭未保存的项目可取消、放弃修改或保存并关闭，关闭标签不会删除磁盘文件。启动和关闭最后一个标签后，项目目录为空、标签栏隐藏，中心显示扫描类型选择；选择类型或打开项目后才出现项目。
@@ -83,7 +85,7 @@ macOS 使用 `npm` 而不是 `npm.cmd`，在 Mac 上重新安装依赖，不复�
 - 导入任务当前完成本次文件批次后统一展示缩略图，处理中会显示逐文件进度。
 - 原图丢失可逐张定位，批量重新定位文件夹和缓存清理管理界面尚未实现。
 - 退出有未保存内容时可返回保存或放弃退出，尚未做带原生“保存并退出”的完整三按钮流程。
-- Windows 安装包未签名；Intel Mac 测试版使用 ad-hoc 签名，未配置 Apple Developer ID 和公证。Ventura 13.7.1 仍需目标电脑实测。
+- Windows 安装包未签名；Intel Mac 测试版使用 ad-hoc 签名，未配置 Apple Developer ID 和公证。High Sierra 10.13.6 仍需目标电脑实测；Mac 安装包尚需在 Intel Mac 构建。
 - 软件不自动更新，不上报照片或项目数据。
 
 ## 测试
@@ -119,7 +121,7 @@ scripts       实际桌面流程测试
 assets        已确认的设计参考
 ```
 
-原图像素不通过界面进程传输。预览是缩小的 JPEG 数据，正式导出重新读取 TIFF；所有图片任务逐张处理，Sharp 内部并发限定为 2。整图导出仍会占用与输出像素相关的内存，需要目标 Mac 实测。
+原图像素不通过界面进程传输。预览是缩小的 JPEG 数据，正式导出重新读取 TIFF；所有图片任务逐张处理，Sharp 内部并发限定为 1、缓存上限 48MB（不代表整个进程的内存上限）。整图导出仍会占用与输出像素相关的内存，需要目标 Mac 实测。
 
 ## 打包
 
@@ -128,11 +130,16 @@ npm.cmd run pack:win
 npm.cmd run dist:win
 ```
 
-Intel Mac 测试版目标为 macOS Ventura 13.7.1，运行 `npm run dist:mac:intel`，输出 `release/PD Impression-0.1.0-macOS-Intel.dmg`。配置明确使用 x64，不影响 Windows 打包。
+Intel Mac 构建使用支持 Node.js 24 的较新 Intel Mac；旧 iMac 只负责运行最终应用。进入源码目录后执行：
 
-GitHub Actions 的 **Build macOS Intel test installer** 工作流仅由 **Run workflow** 手动触发，在 `macos-15-intel` 上安装对应原生依赖、构建、检查 Mach-O 最低系统版本，并测试打包应用的 TIFF 导入、项目保存重开和 JPEG 导出。成功后下载 Actions 附件即可，不创建或修改 Releases。说明见 [Intel Mac 测试版](docs/MAC-INTEL-TEST.md)。
+```sh
+bash build-high-sierra.command
+```
 
-云端构建机不是 Ventura，检查通过不代表已在 13.7.1 上实测。正式发布前仍需目标电脑验证，并配置 Developer ID 签名与公证。
+脚本安装锁定依赖、执行测试、构建 DMG、验证签名和所有 Mach-O 的最低系统版本、测试打包应用，并生成 SHA256 校验文件。输出为 `release/PD-Impression-0.1.0-hs.1-High-Sierra-Intel.dmg`。Windows 上的 electron-builder 不支持生成 Mac 应用；源码 ZIP 是构建材料，不是安装包。
 
-依赖版本通过 `package-lock.json` 固定。初始化审计报告的 6 项 moderate 问题来自 electron-builder 的构建依赖链（minimatch），不是运行时图片处理依赖；没有强行降级构建工具。正式分发前应复查上游修复和构建依赖。
+GitHub Actions 的 **Build High Sierra Intel test installer** 工作流仅手动触发，构建命令禁用发布；本次没有推送或执行工作流。若以后选择云端构建，仍需要另行授权推送。较新 Mac 上的检查不能代替 10.13.6 实机验收。
 
+运行环境锁定 Electron 26.6.10（Node.js 18.16.1、Chromium 116）、Sharp 0.32.6／libvips 8.14.5。开发工具继续使用 Node.js 24，输出分别面向 Node 18 和 Chromium 116。
+
+Electron 26 已停止维护。2026-11-25 的 `npm audit --omit=dev` 报告 Sharp 运行依赖存在 high 风险项，因此这是用于可信本地扫描文件的旧机兼容测试版，不能宣称安全问题已解决。不要用 `npm audit fix --force` 自动升级，否则会失去旧系统兼容性。具体依据与限制见 Mac 测试说明。
