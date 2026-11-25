@@ -130,7 +130,9 @@ npm.cmd run dist:win
 
 Intel Mac 测试版目标为 macOS Ventura 13.7.1，运行 `npm run dist:mac:intel`，输出 `release/PD Impression-0.1.0-macOS-Intel.dmg`。配置明确使用 x64，不影响 Windows 打包。
 
-GitHub Actions 的 **Build macOS Intel test installer** 工作流仅由 **Run workflow** 手动触发，在 `macos-15-intel` 上安装对应原生依赖、构建、检查 Mach-O 最低系统版本，并测试打包应用的 TIFF 导入、项目保存重开和 JPEG 导出。成功后下载 Actions 附件即可，不创建或修改 Releases。说明见 [Intel Mac 测试版](docs/MAC-INTEL-TEST.md)。
+GitHub Actions 的 `mac-intel.yml` 手动入口在本分支名为 **Build macOS test installer**。选择 `architecture: intel` 后在 `macos-15-intel` 上构建 Intel 包；默认 `apple-silicon` 则调用 ARM64 工作流。侧栏可能仍显示主线旧名称 **Build macOS Intel test installer**。成功后下载 Actions 附件即可，不创建或修改 Releases。Intel 说明见 [Intel Mac 测试版](docs/MAC-INTEL-TEST.md)。
+
+本分支 `feature/apple-silicon` 新增 M 芯片原生构建：运行 `npm run dist:mac:arm64`，输出 `release/PD Impression-0.1.0-macOS-AppleSilicon.dmg`。默认导出仍为 **8000px**，不采用 High Sierra 的旧依赖。GitHub 的 **Build Apple Silicon test installer** 在 `macos-15` ARM64 构建机上运行，检查签名、ARM64 原生库和最低系统版本，并测试打包应用的默认 8000px 导出。使用已有手动入口选择本分支即可调用，具体步骤见 [Apple Silicon 测试版](docs/MAC-APPLE-SILICON-TEST.md)。本次只准备配置，没有推送或启动云端构建。
 
 云端构建机不是 Ventura，检查通过不代表已在 13.7.1 上实测。正式发布前仍需目标电脑验证，并配置 Developer ID 签名与公证。
 

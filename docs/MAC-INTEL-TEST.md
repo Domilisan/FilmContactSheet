@@ -4,8 +4,8 @@
 
 ## 下载和安装
 
-1. 在 GitHub 仓库的 Actions 页面选择 **Build macOS Intel test installer**。
-2. 点击 **Run workflow**，选择包含本配置的分支，启动构建。
+1. 在 GitHub 仓库的 Actions 页面选择 `mac-intel.yml` 对应的 **Build macOS test installer**（侧栏可能仍显示旧名称 **Build macOS Intel test installer**）。
+2. 点击 **Run workflow**，选择包含本配置的分支；在 `feature/apple-silicon` 上必须将 `architecture` 选为 **intel**，再启动构建。此分支默认构建 Apple Silicon。
 3. 等待成功后，在该次运行页面的 Artifacts 下载 **PD-Impression-macOS-Intel-test-编号**。
 4. 解压下载的 ZIP，打开其中的 DMG，将 **PD Impression** 拖到 **Applications（应用程序）**。
 5. 从“应用程序”打开软件，不需要安装 Node.js 或 VS Code。

@@ -24,7 +24,9 @@
     "dist:win": "npm run build && electron-builder --win nsis",
     "dist:mac": "npm run dist:mac:intel",
     "dist:mac:intel": "npm run build && electron-builder --mac dmg --x64 --publish never",
-    "verify:mac:intel": "node scripts/verify-mac-intel.mjs"
+    "dist:mac:arm64": "npm run build && electron-builder --config electron-builder.arm64.cjs --mac dmg --arm64 --publish never",
+    "verify:mac:intel": "node scripts/verify-mac-intel.mjs",
+    "verify:mac:arm64": "node scripts/verify-mac-arm64.mjs"
   },
   "build": {
     "appId": "studio.pdimpression.desktop",

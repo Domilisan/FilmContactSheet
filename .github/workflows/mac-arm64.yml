@@ -1,0 +1,76 @@
+name: Build Apple Silicon test installer
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-arm64-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    env:
+      SHARP_IGNORE_GLOBAL_LIBVIPS: '1'
+      PDIMPRESSION_EXPECTED_ARCH: arm64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          architecture: arm64
+          cache: npm
+      - name: Verify native Apple Silicon build host
+        run: |
+          node -e "if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new Error('Native Apple Silicon runner and Node.js required')"
+          node --version
+          npm --version
+      - name: Install locked dependencies including ARM64 image libraries
+        run: npm ci --include=optional
+      - name: Check native Sharp and libvips installation
+        run: |
+          node -e "const sharp = require('sharp'); require.resolve('@img/sharp-darwin-arm64/sharp.node'); require.resolve('@img/sharp-libvips-darwin-arm64/package'); console.log(JSON.stringify({ arch: process.arch, versions: sharp.versions }))"
+      - name: Run tests
+        run: npm test
+      - name: Build ARM64 DMG (never publish)
+        run: npm run dist:mac:arm64
+      - name: Check signatures, architecture and deployment targets
+        run: npm run verify:mac:arm64
+      - name: Test packaged app import, save, reopen and 8000px export
+        run: npm run test:packaged
+      - name: Verify disk image and prepare download
+        run: |
+          hdiutil verify release/*-macOS-AppleSilicon.dmg
+          cp docs/MAC-APPLE-SILICON-TEST.md release/MAC-APPLE-SILICON-TEST.md
+          cd release
+          shasum -a 256 *-macOS-AppleSilicon.dmg > SHA256SUMS-AppleSilicon.txt
+      - name: Upload installer as an Actions artifact only
+        uses: actions/upload-artifact@v7
+        with:
+          name: PD-Impression-AppleSilicon-test-${{ github.run_number }}
+          path: |
+            release/*-macOS-AppleSilicon.dmg
+            release/SHA256SUMS-AppleSilicon.txt
+            release/MAC-APPLE-SILICON-TEST.md
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: AppleSilicon-diagnostics-${{ github.run_number }}
+          path: |
+            .test-output/mac-arm64-verification.json
+            .test-output/packaged-*/result.json
+            .test-output/packaged-*/*.png
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7

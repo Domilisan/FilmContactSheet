@@ -1,17 +1,30 @@
-name: Build macOS Intel test installer
+name: Build macOS test installer
 
 on:
   workflow_dispatch:
+    inputs:
+      architecture:
+        description: Mac build architecture
+        type: choice
+        required: true
+        default: apple-silicon
+        options:
+          - apple-silicon
+          - intel
 
 permissions:
   contents: read
 
 concurrency:
-  group: mac-intel-${{ github.ref }}
+  group: mac-dispatch-${{ github.ref }}-${{ github.event.inputs.architecture || 'apple-silicon' }}
   cancel-in-progress: true
 
 jobs:
+  build-arm64:
+    if: ${{ github.event.inputs.architecture != 'intel' }}
+    uses: ./.github/workflows/mac-arm64.yml
   build:
+    if: ${{ github.event.inputs.architecture == 'intel' }}
     runs-on: macos-15-intel
     timeout-minutes: 35
     env:
