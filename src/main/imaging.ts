@@ -2,7 +2,7 @@ import sharp, { type OverlayOptions, type Sharp } from 'sharp'
 import { randomUUID } from 'node:crypto'
 import { stat, rename, rm } from 'node:fs/promises'
 import path from 'node:path'
-import { type Asset, type Project, type Progress } from '../shared/model'
+import { MAX_PREVIEW_LENGTH, type Asset, type Project, type Progress } from '../shared/model'
 import { exportErrors, layoutSheet, sheetSvg, rollHeader } from '../shared/layout'
 import { measureHeaderOrderY } from './header-spacing'
 import { MAX_EXPORT_BYTES } from '../shared/export-settings'
@@ -10,6 +10,28 @@ import { MAX_EXPORT_BYTES } from '../shared/export-settings'
 sharp.cache({ memory: 96, files: 16, items: 60 })
 sharp.concurrency(2)
 const inputOptions = { limitInputPixels: 150_000_000, failOn: 'error' as const }
+
+async function photoPreview(filePath: string, width: number, height: number): Promise<string> {
+  const longEdge = Math.max(width, height), shortEdge = Math.min(width, height)
+  // Long scans occupy a whole row. Keep detail along their short edge instead
+  // of sharing a single photograph's 720 pixels across the entire strip.
+  // Use geometry so imports, replacements and reopened projects behave alike.
+  const elongated = longEdge / shortEdge >= 3
+  let scale = elongated ? Math.min(1, 720 / shortEdge, 7200 / longEdge) : Math.min(1, 720 / longEdge)
+  const prefix = 'data:image/jpeg;base64,'
+  const maxBytes = Math.floor((MAX_PREVIEW_LENGTH - prefix.length) / 4) * 3
+  const original = sharp(filePath, inputOptions).autoOrient().pipelineColourspace('rgb16')
+  for (;;) {
+    const preview = await original.clone()
+      .resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)),
+        fit: 'inside', withoutEnlargement: true })
+      .withIccProfile('srgb').jpeg(elongated ? { quality: 88, chromaSubsampling: '4:4:4' } : { quality: 84 }).toBuffer()
+    if (preview.length <= maxBytes) return prefix + preview.toString('base64')
+    // Bound IPC/project payloads even for dense grain. Always resample the
+    // original, never an already compressed JPEG; keep the complete image.
+    scale *= Math.min(0.8, Math.sqrt(maxBytes / preview.length) * 0.9)
+  }
+}
 
 // 每次从同一个原始合成流程编码，避免对 JPEG 反复压缩。
 // 首次质量已达标时直接采用；超限才搜索可容纳的较高 JPEG 质量。
@@ -55,10 +77,7 @@ export async function inspectPhoto(filePath: string, id = randomUUID()): Promise
     if (!asset.hasIcc && !['srgb', 'rgb', 'b-w', 'grey16', 'rgb16'].includes(asset.space))
       throw new Error(`无 ICC 的 ${asset.space} 图片无法安全解释颜色，请先嵌入正确配置。`)
     if (!asset.hasIcc) asset.warning = '未嵌入 ICC；预览按 sRGB／灰度解释，导出前需确认。'
-    const preview = await sharp(filePath, inputOptions).autoOrient().pipelineColourspace('rgb16')
-      .resize({ width: 720, height: 720, fit: 'inside', withoutEnlargement: true })
-      .withIccProfile('srgb').jpeg({ quality: 84 }).toBuffer()
-    asset.preview = `data:image/jpeg;base64,${preview.toString('base64')}`
+    asset.preview = await photoPreview(filePath, asset.width, asset.height)
     asset.status = 'ready'
   } catch (error) { asset.error = error instanceof Error ? error.message : String(error) }
   return asset

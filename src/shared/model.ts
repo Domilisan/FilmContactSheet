@@ -25,13 +25,14 @@ export const defaultTemplate: Template = {
   align: 'center', brand: 'PD DARKROOM', edgeText: true, background: '#ffffff',
   showFilm: true, showDate: true, infoSize: 2.7
 }
+export const MAX_PREVIEW_LENGTH = 4_000_000
 export const assetSchema = z.object({
   id: z.string().max(80), path: z.string().min(1).max(4096), name: z.string().max(512),
   size: z.number().nonnegative(), width: z.number().nonnegative(), height: z.number().nonnegative(),
   depth: z.string(), hasIcc: z.boolean(), space: z.string(),
   rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]),
   status: z.enum(['ready', 'error']), error: z.string().optional(),
-  preview: z.string().max(4000000), warning: z.string().optional()
+  preview: z.string().max(MAX_PREVIEW_LENGTH), warning: z.string().optional()
 })
 export type Asset = z.infer<typeof assetSchema>
 export const projectSchema = z.object({
