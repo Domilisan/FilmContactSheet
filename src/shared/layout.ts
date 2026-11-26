@@ -1,5 +1,5 @@
 import { photoCount, newProject, type Project, type Asset, type Template } from './model'
-import { fixedLogo, filmOffsetY } from './branding'
+import { fixedLogo, filmOffsetY, filmFrameColor } from './branding'
 import { projectProfile, type ScanType } from './scan-types'
 
 // 导出图第三行（扫描仪等信息）的字号，单位为 mm。
@@ -147,7 +147,7 @@ export function sheetSvg(p: Project, options: { pictures?: boolean; selected?: n
     body.push(text(infoRight, l.headerY + header.detailsY, header.details, detailsFontSize, 'dominant-baseline="middle" text-anchor="end" fill="#666666"'))
   }
   for (const strip of l.strips) {
-    body.push(`<rect x="${strip.x}" y="${strip.y}" width="${strip.width}" height="${strip.height}" fill="#171715"/>`)
+    body.push(`<rect x="${strip.x}" y="${strip.y}" width="${strip.width}" height="${strip.height}" fill="${filmFrameColor}"/>`)
     // 按黑边空间限制齿孔尺寸，避开照片、品牌文字与编号；120 不绘制齿孔。
     const holeHeight = Math.min(2.79, profile.edge - 2.3)
     const holeWidth = 1.98 * holeHeight / 2.79
@@ -165,7 +165,8 @@ export function sheetSvg(p: Project, options: { pictures?: boolean; selected?: n
       const rotated = a.rotation === 90 || a.rotation === 270
       const fit = Math.min(f.width / (rotated ? a.height : a.width), f.height / (rotated ? a.width : a.height))
       const w = a.width * fit, h = a.height * fit
-      body.push(`<g transform="translate(${f.x + f.width / 2} ${f.y + f.height / 2}) rotate(${a.rotation})"><image href="${a.preview}" x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}"/></g>`)
+      const centerX = f.x + (profile.mode === 'strip' ? (rotated ? h : w) : f.width) / 2
+      body.push(`<g transform="translate(${centerX} ${f.y + f.height / 2}) rotate(${a.rotation})"><image href="${a.preview}" x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}"/></g>`)
     }
     if (!options.backgroundOnly) body.push(text(f.x + 1, f.y + f.height + (profile.perforated ? profile.edge - 0.4 : profile.edge / 2),
       String(f.index + 1).padStart(2, '0'), profile.perforated ? 1.35 : 2.2, edgeTextStyle))

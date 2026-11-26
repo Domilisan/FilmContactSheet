@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { inspectPhoto, exportSheet, writeSizeLimitedJpeg } from '../src/main/imaging'
 import { MAX_EXPORT_BYTES } from '../src/shared/export-settings'
 import { newProject, addAssets, defaultTemplate } from '../src/shared/model'
-import { layoutSheet, newScanProject } from '../src/shared/layout'
+import { layoutSheet, newScanProject, sheetSvg } from '../src/shared/layout'
 import { scanProfiles, rotationForProfile } from '../src/shared/scan-types'
 
 let dir: string
@@ -66,6 +66,40 @@ test.each(scanProfiles.filter(p => p.mode === 'strip' || p.id === 'half' || p.id
     expect(pixel[(channel + 1) % 3]).toBeLessThan(100)
   }
   expect(await readFile(source)).toEqual(original)
+}, 30000)
+
+const shortStripCases = scanProfiles.filter(p => p.mode === 'strip').flatMap(profile =>
+  (profile.id === '135-strip' ? [0, 90, 180, 270] as const : [0] as const).map(rotation => ({ profile, rotation })))
+
+test.each(shortStripCases)('$profile.label short strip at $rotation degrees starts at the left in preview and export', async ({ profile, rotation }) => {
+  const w = Math.round(profile.ratioWidth * 50), h = Math.round(profile.ratioHeight * 100)
+  const source = join(dir, `short-${profile.id}-${rotation}.tif`)
+  const svg = `<svg width="${w}" height="${h}"><rect width="100%" height="100%" fill="#e83020"/><rect x="${w / 2}" width="${w / 2}" height="100%" fill="#2048e8"/></svg>`
+  await sharp(Buffer.from(svg)).rotate((360 - rotation) % 360).withIccProfile('srgb').tiff().toFile(source)
+  const asset = await inspectPhoto(source)
+  asset.rotation = rotation
+  const p = addAssets(newScanProject(defaultTemplate, profile.id), [asset])
+  const destination = join(dir, `short-${profile.id}-${rotation}.jpg`)
+  await exportSheet(p, 1600, 94, destination, join(dir, `short-${profile.id}-${rotation}.tmp`), () => {})
+  const layout = layoutSheet(p), frame = layout.frames[0], scale = 1600 / layout.width
+  const preview = Buffer.from(sheetSvg(p, { pictures: true }).replace(/width="[^"]+mm" height="[^"]+mm"/,
+    `width="1600" height="${Math.round(1600 * Math.SQRT2)}"`))
+  for (const image of [preview, destination]) {
+    // Both ends of the short scan stay visible at the left; unused space is on the right.
+    const pixels = await sharp(image).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+    const sample = (fraction: number) => {
+      const x = Math.round((frame.x + frame.width * fraction) * scale)
+      const y = Math.round((frame.y + frame.height / 2) * scale)
+      const offset = (y * pixels.info.width + x) * pixels.info.channels
+      return [...pixels.data.subarray(offset, offset + 3)]
+    }
+    const left = sample(0.02), rightEnd = sample(0.48)
+    expect(left[0]).toBeGreaterThan(180)
+    expect(left[2]).toBeLessThan(100)
+    expect(rightEnd[2]).toBeGreaterThan(180)
+    expect(rightEnd[0]).toBeLessThan(100)
+    for (const fraction of [0.55, 0.97]) expect(Math.max(...sample(fraction))).toBeLessThan(50)
+  }
 }, 30000)
 
 test('under-limit JPEG keeps the requested quality and identical encoded pixels', async () => {

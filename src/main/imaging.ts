@@ -6,6 +6,8 @@ import { MAX_PREVIEW_LENGTH, type Asset, type Project, type Progress } from '../
 import { exportErrors, layoutSheet, sheetSvg, rollHeader } from '../shared/layout'
 import { measureHeaderOrderY } from './header-spacing'
 import { MAX_EXPORT_BYTES } from '../shared/export-settings'
+import { projectProfile } from '../shared/scan-types'
+import { filmFrameColor } from '../shared/branding'
 
 sharp.cache({ memory: 96, files: 16, items: 60 })
 sharp.concurrency(2)
@@ -89,6 +91,7 @@ export async function exportSheet(project: Project, width: number, quality: numb
   if (errors.length) throw new Error(errors.join('\n'))
   if (!Number.isInteger(width) || width < 1600 || width > 10000) throw new Error('输出宽度必须在 1600 至 10000 像素之间。')
   const layout = layoutSheet(project)
+  const position = projectProfile(project).mode === 'strip' ? 'left' : 'centre'
   const height = Math.round(width * Math.SQRT2)
   const scale = width / layout.width
   const density = width / (layout.width / 25.4)
@@ -102,7 +105,7 @@ export async function exportSheet(project: Project, width: number, quality: numb
       const w = Math.round((f.x + f.width) * scale) - left
       const h = Math.round((f.y + f.height) * scale) - top
       const input = await sharp(asset.path, inputOptions).autoOrient().rotate(asset.rotation)
-        .pipelineColourspace('rgb16').resize(w, h, { fit: 'contain', background: '#171715' })
+        .pipelineColourspace('rgb16').resize(w, h, { fit: 'contain', position, background: filmFrameColor })
         .withIccProfile('srgb').png().toBuffer()
       overlays.push({ input, left, top })
     }
