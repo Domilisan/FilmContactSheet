@@ -1,6 +1,6 @@
 // 胶卷型号下拉菜单：按品牌分组。要增加型号，在对应 films 数组里新增一行。
 // 字符串同时用于菜单、项目保存和导出标题；保留常见包装名称，方便记录旧胶卷。
-// 型号参考：kodakprofessional.com、fujifilm.com、cinestillfilm.com、ilfordphoto.com。
+// 型号参考：kodakprofessional.com、kodak.com、fujifilm.com、cinestillfilm.com、ilfordphoto.com。
 export const filmStockGroups = [
   {
     brand: '柯达 Kodak',
@@ -14,7 +14,12 @@ export const filmStockGroups = [
       'Kodak Ektachrome E100',
       'Kodak Tri-X 400',
       'Kodak T-Max 100',
-      'Kodak T-Max 400'
+      'Kodak T-Max 400',
+      'Kodak VISION3 50D 5203',
+      'Kodak VISION3 250D 5207',
+      'Kodak VISION3 200T 5213',
+      'Kodak VISION3 500T 5219',
+      'EASTMAN DOUBLE-X 5222'
     ]
   },
   {

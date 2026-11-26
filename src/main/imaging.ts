@@ -7,6 +7,7 @@ import { exportErrors, layoutSheet, sheetSvg, rollHeader } from '../shared/layou
 import { measureHeaderOrderY } from './header-spacing'
 import { MAX_EXPORT_BYTES } from '../shared/export-settings'
 import { renderPhotoTile } from './image-compat'
+import { projectProfile } from '../shared/scan-types'
 
 sharp.cache({ memory: 48, files: 8, items: 30 })
 sharp.concurrency(1)
@@ -90,6 +91,7 @@ export async function exportSheet(project: Project, width: number, quality: numb
   if (errors.length) throw new Error(errors.join('\n'))
   if (!Number.isInteger(width) || width < 1600 || width > 10000) throw new Error('输出宽度必须在 1600 至 10000 像素之间。')
   const layout = layoutSheet(project)
+  const align = projectProfile(project).mode === 'strip' ? 'left' : 'center'
   const height = Math.round(width * Math.SQRT2)
   const scale = width / layout.width
   const density = width / (layout.width / 25.4)
@@ -102,7 +104,7 @@ export async function exportSheet(project: Project, width: number, quality: numb
       const left = Math.round(f.x * scale), top = Math.round(f.y * scale)
       const w = Math.round((f.x + f.width) * scale) - left
       const h = Math.round((f.y + f.height) * scale) - top
-      const input = await renderPhotoTile(sharp(asset.path, inputOptions), w, h, asset.rotation)
+      const input = await renderPhotoTile(sharp(asset.path, inputOptions), w, h, asset.rotation, align)
       overlays.push({ input, left, top })
     }
     onProgress({ message: '合成胶片与品牌信息', current: frames.length, total: frames.length + 1 })
