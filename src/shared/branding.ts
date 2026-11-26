@@ -8,3 +8,6 @@ export const fixedLogo = {
 
 // 所有胶片条、画格和编号整体向上移动 20mm（比上一版再上移 10mm）。
 export const filmOffsetY = -20
+
+// 胶片底框与适配补边共用；取自扫描件照片间隙截图的代表色。
+export const filmFrameColor = '#141307'
